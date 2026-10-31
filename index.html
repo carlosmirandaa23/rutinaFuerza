@@ -502,6 +502,21 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .rest-banner .rb-txt b{color:var(--accent3);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;font-weight:400;display:block;}
 .rest-banner button{background:transparent;border:1px solid var(--border);color:#bbb;border-radius:100px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
 .hm-cell.rest-taken{background:transparent;border:1.5px dashed var(--accent3);}
+
+/* ===== PLAN DE HOY ===== */
+.plan{border:1px solid color-mix(in srgb,var(--pc) 40%,transparent);background:color-mix(in srgb,var(--pc) 7%,#121212);border-radius:16px;padding:14px 16px;margin-bottom:var(--sp);}
+.plan-empty{border:1px dashed var(--border);background:#121212;color:#999;font-size:var(--fs-sm);line-height:1.55;}
+.plan-lbl{font-size:var(--fs-xs);letter-spacing:2px;text-transform:uppercase;color:var(--pc);font-weight:700;}
+.plan-main{font-family:'Bebas Neue',sans-serif;font-size:clamp(38px,9vw,48px);line-height:1;color:#fff;letter-spacing:1px;margin-top:4px;}
+.plan-main .pl-x{color:#777;font-size:.7em;}
+.plan-main .pl-range{color:#999;font-size:.6em;}
+.plan-main .pl-per{font-family:'DM Sans',sans-serif;font-size:12px;color:#999;letter-spacing:0;vertical-align:middle;}
+.plan-sets{font-size:12px;color:#999;margin-top:2px;}
+.plan-why{font-size:var(--fs-sm);color:#ddd;line-height:1.5;margin-top:10px;}
+.plan-line{font-size:13px;color:#bbb;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.07);}
+.plan-line .pl-k{display:inline-block;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#888;font-weight:700;margin-right:6px;}
+.plan-note{color:#ffcf70;}
+.plan-note strong{color:#ffe0a0;}
 </style>
 </head>
 <body>
@@ -771,7 +786,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
     <div class="log-prev-hint" id="logPrevHint"></div>
     <div class="log-fields" id="logFields">
       <div class="log-field">
-        <div class="log-field-label">Peso</div>
+        <div class="log-field-label" id="logWeightLabel">Peso</div>
         <div class="stepper">
           <button class="step-btn" onclick="stepWeight(-1)" aria-label="Bajar peso">&#8722;</button>
           <input class="step-input" id="logWeight" type="number" inputmode="decimal" min="0" step="0.5" value="0">
@@ -1034,11 +1049,17 @@ function openLogModal(di,ei,si,editing){
   const pd=prevSessionDate(name);
   const pe=pd?getEntry(di,ei,pd,si):null;
   logRir=(editing&&todayE&&todayE.x!=null)?todayE.x:null; updateRirChips();
+  const prevToday=si>0?getEntry(di,ei,t,si-1):null;
+  const plan=editing?null:exercisePlan(name);
   if(editing&&todayE){ prefR=todayE.r; prefW=todayE.w; logUnit=todayE.u; }
+  else if(prevToday){ prefR=prevToday.r; prefW=prevToday.w; logUnit=prevToday.u; }
+  else if(plan&&plan.w>0){ prefR=plan.r; prefW=plan.w; logUnit=plan.u; }
+  else if(plan&&pe){ prefR=plan.r; prefW=pe.w; logUnit=pe.u; }
   else if(pe){ prefR=pe.r; prefW=pe.w; logUnit=pe.u; }
   else{ const la=lastLoggedEntry(name); if(la){ prefW=la.w; logUnit=la.u; prefR=la.r; } }
 
   document.getElementById('logExName').textContent=name;
+  document.getElementById('logWeightLabel').textContent=dbCount(name)===2?'Peso por mancuerna':'Peso';
   document.getElementById('logSetLabel').textContent='SERIE '+(si+1)+' DE 4';
   document.getElementById('logWeight').value=fmtW(prefW);
   document.getElementById('logReps').value=prefR;
@@ -1051,10 +1072,9 @@ function openLogModal(di,ei,si,editing){
   const recH=computeRecords(name);
   if(recH){ const hu=cfg.unit||'kg'; hintHTML+='<div class="lph-max"><span class="lph-arrow">&#9650;</span> Tu máximo en este ejercicio: <strong>'+fmtW(fromKg(recH.max.kg,hu))+' '+hu+'</strong><span class="lph-md">&middot; '+fmtDateShort(recH.max.date)+'</span></div>'; }
   if(!editing){
-    const sug=progressionSuggestion(name);
-    if(sug){
-      hintHTML+='<div class="log-sug'+(sug.up?' sug-up':'')+'">'+(sug.up?'&#11014; ':'&#10140; ')+sug.text+
-        (sug.w!=null?' <button class="sug-use" onclick="useSuggested('+sug.w+',\''+sug.u+'\')">Usar</button>':'')+'</div>';
+    if(plan){
+      hintHTML+='<div class="log-sug sug-up">&#127919; Plan de hoy: <strong>'+planText(plan)+'</strong>'+(plan.pair&&plan.w>0?' (por mancuerna)':'')+
+        (plan.w>0?' <button class="sug-use" onclick="useSuggested('+plan.w+',\''+plan.u+'\','+plan.r+')">Usar</button>':'')+'</div>';
     }
   }
   hint.innerHTML=hintHTML;
@@ -1300,7 +1320,7 @@ function trainingDays(all){
 function sessionSummary(date,di,s){
   s=s||sessions[date+'|'+di]||{};
   let vol=0,logged=0;
-  DAYS[di].exercises.forEach(e=>{ const d=logs[e.name]&&logs[e.name][date]; if(!d) return; Object.values(d).forEach(x=>{ if(!x) return; logged++; vol+=toKg(x.w||0,x.u)*(x.r||0); }); });
+  DAYS[di].exercises.forEach(e=>{ const d=logs[e.name]&&logs[e.name][date]; if(!d) return; const dbn=dbCount(e.name); Object.values(d).forEach(x=>{ if(!x) return; logged++; vol+=toKg(x.w||0,x.u)*(x.r||0)*dbn; }); });
   const done=(s.done||[]).reduce((a,b)=>a+(b||0),0);
   const sets=Math.max(done,logged);
   // duración: de la primera a la última serie + un descanso promedio
@@ -1315,7 +1335,7 @@ function exerciseSeries(name){
   return Object.keys(log).sort().map(date=>{
     const sets=Object.keys(log[date]).map(Number).sort((a,b)=>a-b).map(si=>Object.assign({si},log[date][si])).filter(e=>e&&e.r!=null);
     let vol=0,reps=0,best=0,top=null;
-    sets.forEach(e=>{ const kg=toKg(e.w||0,e.u); reps+=e.r||0; vol+=kg*(e.r||0); const v=e1rm(kg,e.r); if(v>best)best=v; if(!top||kg>top.kg+0.01||(Math.abs(kg-top.kg)<0.01&&e.r>top.r)) top={kg,r:e.r||0,u:e.u}; });
+    const dbn=dbCount(name); sets.forEach(e=>{ const kg=toKg(e.w||0,e.u); reps+=e.r||0; vol+=kg*(e.r||0)*dbn; const v=e1rm(kg,e.r); if(v>best)best=v; if(!top||kg>top.kg+0.01||(Math.abs(kg-top.kg)<0.01&&e.r>top.r)) top={kg,r:e.r||0,u:e.u}; });
     return {date,sets,vol,reps,e1rm:best,top};
   }).filter(s=>s.sets.length);
 }
@@ -1378,9 +1398,10 @@ function progressionSuggestion(name){
   const repsTot=heavy.reduce((a,e)=>a+e.r,0);
   return {up:false,text:'Quédate en '+fmtW(fromKg(kg,u))+' '+u+' y gánale a <strong>'+repsTot+' reps totales</strong>. Cuando hagas 4×'+top+', subes.'};
 }
-function useSuggested(w,u){
+function useSuggested(w,u,r){
   if(u!==logUnit){ logUnit=u; updateLogUnitToggle(); }
   document.getElementById('logWeight').value=fmtW(w);
+  if(r!=null) document.getElementById('logReps').value=r;
 }
 let logRir=null;
 function setRir(x){ logRir=(logRir===x)?null:x; updateRirChips(); }
@@ -1610,8 +1631,9 @@ function viewExercise(name){
   h+='<div class="bx-card"><h3>'+(m==='e1rm'?'1RM estimado por sesión ('+u+')':'Reps totales por sesión')+'</h3>'+chartSlot((W,H)=>lineChartSVG(pts,color,W,H),220)+'</div>';
   const vpts=ser.map(s=>({x:s.date,y:Math.round(fromKg(s.vol,u)),tip:'<b>'+fmtDateShort(s.date)+'</b><br>'+fmtBig(fromKg(s.vol,u))+' '+u+' de volumen'}));
   if(m==='e1rm') h+='<div class="bx-card"><h3>Volumen por sesión ('+u+') <span class="h-note">peso × reps de las 4 series</span></h3>'+chartSlot((W,H)=>lineChartSVG(vpts,color,W,H),160)+'</div>';
-  const sug=progressionSuggestion(name);
-  if(sug) h+='<div class="bx-card"><h3>Próxima sesión</h3><div class="bx-empty" style="color:#ddd">'+sug.text+'</div></div>';
+  h+='<div class="bx-card"><h3>Próxima sesión</h3>'+planHTML(name,color)+'</div>';
+  const dn=dbCount(name);
+  h+='<div class="bx-card"><h3>¿Cuántas mancuernas usas?</h3><div class="bx-empty" style="margin-bottom:10px;font-size:13px">El peso se anota por mancuerna. Esto solo cambia el cálculo del volumen (2 = dos mancuernas, o un brazo/pierna a la vez).</div><div class="unit-seg"><button class="unit-opt'+(dn===1?' active':'')+'" onclick="setDbCount(\''+name.replace(/'/g,"\\'")+'\',1)">1 mancuerna</button><button class="unit-opt'+(dn===2?' active':'')+'" onclick="setDbCount(\''+name.replace(/'/g,"\\'")+'\',2)">2 mancuernas</button></div></div>';
   h+='<div class="bx-card"><h3>Todas las sesiones</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Fecha</th><th>Series (peso × reps)</th>'+(m==='e1rm'?'<th class="num">1RM est.</th>':'')+'<th class="num">Vol.</th></tr></thead><tbody>';
   ser.slice().reverse().forEach(s=>{ h+='<tr><td>'+fmtDateShort(s.date)+'</td><td>'+s.sets.map(e=>fmtW(e.w||0)+' '+e.u+' × '+e.r+(e.x!=null?' <span style="color:#777">@'+rirTxt(e.x)+'</span>':'')).join('<br>')+'</td>'+(m==='e1rm'?'<td class="num">'+fmtW(fromKg(s.e1rm,u))+'</td>':'')+'<td class="num">'+fmtBig(fromKg(s.vol,u))+'</td></tr>'; });
   h+='</tbody></table></div><div class="mb-note">@ = reps que te quedaban en reserva.</div></div>';
@@ -1730,6 +1752,99 @@ function skipRest(){ restLog[todayStr()]='saltado'; saveState(); document.getEle
 function undoRest(){ restLog[todayStr()]='saltado'; saveState(); refreshRestBanner(); }
 function refreshRestBanner(){ const b=document.getElementById('restBanner'); if(b) b.classList.toggle('show', !!cfg.restAdvice && restLog[todayStr()]==='tomado' && !trainedOn(todayStr())); }
 document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ refreshRestBanner(); setTimeout(maybeSuggestRest,600); } });
+
+// ============================================================
+//  PLAN DE HOY: peso y reps recomendados según tu 1RM e historial
+// ============================================================
+// Cuántas mancuernas mueves en el ejercicio (el peso se anota por mancuerna).
+// 2 = dos mancuernas o un brazo/pierna a la vez; 1 = una sola mancuerna o peso corporal.
+const ONE_DB=['Extension de Triceps sobre la Cabeza','Pullover con Mancuerna','Plancha con Toque de Hombro','Dead Bug','Sentadilla Goblet con Mancuerna','Puente de Gluteo con Mancuerna','Sentadilla Sumo con Mancuerna','Elevacion de Talones Calf Raise'];
+function dbCount(name){ const o=cfg.dbCount&&cfg.dbCount[name]; return o===1||o===2? o : (ONE_DB.indexOf(name)>=0?1:2); }
+function setDbCount(name,n){ cfg.dbCount=cfg.dbCount||{}; cfg.dbCount[name]=n; saveState(); bxView('ejercicios'); }
+
+// Pesos que tienes: los que has usado en cualquier ejercicio, en esa unidad
+function ownedWeights(u,name){
+  const set=new Set();
+  Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)&&n!==name) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0&&(e.u||'kg')===u) set.add(e.w); })); });
+  return [...set].sort((a,b)=>a-b);
+}
+function repsFor(targetE1,w){ return Math.max(1,Math.ceil(30*(targetE1/w-1)-1e-9)); }
+
+function exercisePlan(name){
+  const t=todayStr();
+  const ser=sameKind(exerciseSeries(name).filter(s=>s.date<t));
+  if(!ser.length) return null;
+  const last=ser[ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
+  const lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0, lastR=last.top.r;
+  const st=exerciseStatus(ser);
+  const tired=(typeof recoveryCheck==='function')&&recoveryCheck().pts>=2;
+  const rirs=last.sets.filter(e=>e.x!=null).map(e=>e.x);
+  const avgRir=rirs.length?rirs.reduce((a,b)=>a+b,0)/rirs.length:null;
+  const plan={u,pair:dbCount(name)===2,last:{w:lastW,r:lastR,date:last.date},sets:4,notes:[]};
+
+  // Peso corporal: progresar en reps
+  if(!(last.e1rm>0)){
+    const best=Math.max(...last.sets.map(e=>e.r));
+    plan.w=0; plan.r=tired?best:best+1; plan.rMax=plan.r+1;
+    plan.why=tired?'Hoy mantén: tus datos dicen que vienes cansado.':'Una rep más que tu mejor serie de la vez pasada ('+best+').';
+    return plan;
+  }
+
+  // Cuánto subir: ~2% sobre tu 1RM estimado de la última vez (ajustado por esfuerzo y fatiga)
+  let gain=0.02;
+  if(avgRir!=null){ if(avgRir>=3) gain=0.04; else if(avgRir<=0.5) gain=0.01; }
+  if(tired) gain=0;
+  const lastE1=fromKg(last.e1rm,u), target=lastE1*(1+gain);
+  const owned=ownedWeights(u,name); if(owned.indexOf(lastW)<0) owned.push(lastW); owned.sort((a,b)=>a-b);
+  const maxOwned=owned[owned.length-1];
+  // reps necesarias con el mismo peso: al menos 1 más que la vez pasada, máximo 3 más
+  const rSame=gain>0? Math.min(lastR+3, Math.max(lastR+1, repsFor(target,lastW))) : lastR;
+  const heavier=owned.filter(w=>w>lastW+0.01);
+  const next=heavier[0];
+  const rNext=next?repsFor(target,next):null;
+
+  // compuestos aguantan saltos a 6 reps; en aislamiento (curls, elevaciones) no menos de 8 por las articulaciones
+  const exDef=DAYS[DAY_OF[name]].exercises.find(e=>e.name===name);
+  const minJump=(exDef&&/Compuesto/.test(exDef.badge))?6:8;
+  let mode;
+  if(tired){ mode='hold'; plan.w=lastW; plan.r=lastR; }
+  else if(rSame<=12){ mode='reps'; plan.w=lastW; plan.r=rSame; }
+  else if(next&&rNext>=minJump&&rNext<=10){ mode='jump'; plan.w=next; plan.r=rNext; }
+  else if(next){ mode='reps'; plan.w=lastW; plan.r=rSame; plan.notes.push('El siguiente peso que tienes ('+fmtW(next)+' '+u+') es un salto grande para este ejercicio: sigue sumando reps aquí y, cuando hagas 4 series de 15 o más, intenta '+fmtW(next)+' × '+minJump+'.'); }
+  else { mode=rSame>15?'ceiling':'reps'; plan.w=lastW; plan.r=rSame; }
+  plan.rMax=plan.r+(mode==='jump'?2:1);
+  plan.mode=mode;
+
+  if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
+  else if(mode==='reps') plan.why=(plan.r-lastR===1?'Una rep más':(plan.r-lastR)+' reps más')+' que la vez pasada ('+fmtW(lastW)+' × '+lastR+').';
+  else if(mode==='jump') plan.why='Ya dominas '+fmtW(lastW)+' × '+lastR+': toca subir de peso. Con '+fmtW(plan.w)+' '+u+', '+plan.r+' reps ya te dan un 1RM mayor que la vez pasada.';
+  else plan.why='Una rep más que la vez pasada ('+fmtW(lastW)+' × '+lastR+').';
+
+  if(mode==='ceiling') plan.notes.push('Ya estás en tu mancuerna más pesada. Para que siga siendo fuerza: <strong>baja en 3–4 seg y pausa 1 seg abajo</strong>. Con eso cuesta más llegar a las mismas reps, y eso también es progreso.');
+  if(st.k==='stuck'&&mode!=='hold') plan.notes.push('Llevas '+st.since+' sesiones sin récord en este ejercicio: si hoy tampoco sale, cambia a una variante (otro ángulo o a una mano).');
+  if(avgRir!=null&&avgRir>=3&&!tired) plan.notes.push('La vez pasada te sobraban '+Math.round(avgRir)+' reps por serie: hoy puedes apretar más.');
+
+  // Alternativa
+  if(mode==='jump') plan.alt={w:lastW,r:lastR+1,txt:'Si hoy no te sientes fuerte: '+fmtW(lastW)+' × '+(lastR+1)+'.'};
+  else if(mode==='reps'&&next&&rNext>=minJump&&rNext<=10) plan.alt={w:next,r:rNext,txt:'Si te sientes muy bien: '+fmtW(next)+' × '+rNext+'.'};
+
+  // Serie de aproximación para compuestos (≈55% del peso de trabajo)
+  const ex=DAYS[DAY_OF[name]].exercises.find(e=>e.name===name);
+  if(ex&&/Compuesto/.test(ex.badge)&&plan.w>0&&!tired){ const goal=plan.w*0.55; const wu=owned.filter(w=>w<plan.w).reduce((b,w)=>Math.abs(w-goal)<Math.abs(b-goal)?w:b, owned[0]); if(wu&&wu<plan.w) plan.warm={w:wu,r:10}; }
+  return plan;
+}
+function planWeightTxt(p){ return p.w>0? fmtW(p.w)+' '+p.u+(p.pair?' <span class="pl-per">c/u</span>':'') : 'Sin peso'; }
+function planHTML(name,color){
+  const p=exercisePlan(name);
+  if(!p) return '<div class="plan plan-empty">Primera vez con este ejercicio: escoge un peso con el que llegues a 10–12 reps con buena técnica. A partir de ahí la app te dice cuánto hacer.</div>';
+  let h='<div class="plan" style="--pc:'+color+'"><div class="plan-top"><div><div class="plan-lbl">Plan de hoy</div><div class="plan-main">'+planWeightTxt(p)+' <span class="pl-x">×</span> '+p.r+(p.rMax>p.r?'<span class="pl-range">–'+p.rMax+'</span>':'')+'</div><div class="plan-sets">'+p.sets+' series · '+(p.pair?'peso por mancuerna':'una mancuerna')+'</div></div></div>';
+  h+='<div class="plan-why">'+p.why+'</div>';
+  if(p.warm) h+='<div class="plan-line"><span class="pl-k">Aproximación</span> 1 serie de '+fmtW(p.warm.w)+' '+p.u+' × '+p.warm.r+' antes de empezar.</div>';
+  if(p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
+  p.notes.forEach(n=>{ h+='<div class="plan-line plan-note">'+n+'</div>'; });
+  return h+'</div>';
+}
+function planText(p){ return p.w>0? fmtW(p.w)+' '+p.u+' × '+p.r+(p.rMax>p.r?'–'+p.rMax:'') : p.r+' reps'; }
 
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
 let timerDeadline=0; // timestamp absoluto de cuando termina
@@ -2298,6 +2413,7 @@ function buildFocusView() {
         <div class="ex-check" style="${allDone?'background:'+color+';border-color:'+color:'border-color:'+color+'44'}">${allDone?'✓':''}</div>
       </div>
       <div class="focus-sets-area">
+        ${allDone?'':planHTML(ex.name,color)}
         <div class="sets-label">SERIES</div>
         <div class="focus-sets-row">${setsHTML}</div>
         ${historyHTML(di,ei)}
