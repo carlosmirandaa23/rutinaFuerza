@@ -944,7 +944,7 @@ function convertW(w,from,to){ if(from===to) return w; return from==='kg'? w*LB_P
 function roundHalf(x){ return Math.round(x*2)/2; }
 function fmtW(w){ const r=Math.round(w*10)/10; return Number.isInteger(r)?r.toString():r.toString(); }
 function readNum(el,def){ const v=parseFloat(el.value); return isNaN(v)?def:v; }
-function todayStr(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function todayStr(){ const d=new Date(Date.now()-3*3600000); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function fmtDateShort(s){ const p=String(s).split('-'); if(p.length<3) return s; const y=+p[0],m=+p[1],d=+p[2]; let out=d+' '+(MESES[m-1]||''); if(y!==new Date().getFullYear()) out+=" '"+String(y).slice(2); return out; }
 
 function exName(di,ei){ return DAYS[di].exercises[ei].name; }
@@ -1200,7 +1200,8 @@ function touchSession(di){
   stateDates[di]=t;
 }
 function hasLogsOn(date,di){ return DAYS[di].exercises.some(e=>logs[e.name]&&logs[e.name][date]&&Object.keys(logs[e.name][date]).length); }
-// Las marcas de series del día anterior se limpian solas (el historial NO se toca)
+// Un día que ya completaste en una fecha anterior se limpia solo al volver a él.
+// Los días a medias se respetan: puedes repartir un día en varias fechas (rotación).
 function inferDayDate(di){
   let last=null;
   DAYS[di].exercises.forEach(e=>{ Object.keys(logs[e.name]||{}).forEach(d=>{ if(!last||d>last) last=d; }); });
@@ -1213,7 +1214,8 @@ function clearStaleMarks(){
     const any=state[di].flat().some(Boolean);
     if(!any){ stateDates[di]=null; return; }
     if(!stateDates[di]) stateDates[di]=inferDayDate(di);
-    if(stateDates[di]&&stateDates[di]!==t){ state[di].forEach(ex=>ex.fill(false)); stateDates[di]=null; changed=true; }
+    const complete=state[di].flat().every(Boolean);
+    if(complete&&stateDates[di]&&stateDates[di]<t){ state[di].forEach(ex=>ex.fill(false)); stateDates[di]=null; changed=true; }
   });
   if(changed){ saveState(); }
   return changed;
@@ -1240,6 +1242,13 @@ function getAllSessions(){
   });
   return Object.values(map).map(s=>Object.assign(s,sessionSummary(s.date,s.di,s))).sort((a,b)=>a.date===b.date?b.di-a.di:(a.date<b.date?1:-1));
 }
+// Un "entreno" es una fecha: puede incluir partes de varios días de la rutina
+function trainingDays(all){
+  const m={};
+  all.forEach(s=>{ const d=m[s.date]||(m[s.date]={date:s.date,parts:[],sets:0,logged:0,vol:0,mins:0,start:null,end:null}); d.parts.push(s); d.sets+=s.sets; d.logged+=s.logged; d.vol+=s.vol;
+    if(s.start&&(!d.start||s.start<d.start)) d.start=s.start; if(s.end&&(!d.end||s.end>d.end)) d.end=s.end; });
+  return Object.values(m).map(d=>{ d.parts.sort((a,b)=>a.di-b.di); d.mins=(d.start&&d.end&&d.end>d.start)?Math.max(1,Math.round((d.end-d.start)/60000)):null; return d; }).sort((a,b)=>a.date<b.date?1:-1);
+}
 function sessionSummary(date,di,s){
   s=s||sessions[date+'|'+di]||{};
   let vol=0,logged=0;
@@ -1252,7 +1261,7 @@ function sessionSummary(date,di,s){
 }
 
 // --- Series por ejercicio ---
-function e1rm(kg,r){ return (kg>0&&r>0)? kg*(1+Math.min(r,15)/30) : 0; } // Epley
+function e1rm(kg,r){ return (kg>0&&r>0)? kg*(1+r/30) : 0; } // Epley
 function exerciseSeries(name){
   const log=logs[name]||{};
   return Object.keys(log).sort().map(date=>{
@@ -1262,8 +1271,12 @@ function exerciseSeries(name){
     return {date,sets,vol,reps,e1rm:best,top};
   }).filter(s=>s.sets.length);
 }
-function metricOf(series){ return series.some(s=>s.e1rm>0)? 'e1rm':'reps'; }
+function metricOf(series){ return (series.length&&series[series.length-1].e1rm>0)? 'e1rm':'reps'; }
+function sameKind(series){ const m=metricOf(series); return series.filter(s=>m==='e1rm'?s.e1rm>0:!(s.e1rm>0)); }
+// Mancuerna más pesada que has usado (el puente de glúteo no cuenta: ahí se apilan pesos)
+function dumbbellMaxKg(){ let mx=0; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e){ const k=toKg(e.w||0,e.u); if(k>mx) mx=k; } })); }); return mx; }
 function exerciseStatus(series){
+  series=sameKind(series);
   if(!series.length) return {k:'none',label:'Sin datos'};
   const m=metricOf(series);
   let best=-1,bestIdx=0;
@@ -1277,7 +1290,7 @@ function exerciseStatus(series){
 function prsOn(date,di){
   const out=[];
   DAYS[di].exercises.forEach(e=>{
-    const ser=exerciseSeries(e.name); const i=ser.findIndex(s=>s.date===date); if(i<1) return;
+    const ser=sameKind(exerciseSeries(e.name)); const i=ser.findIndex(s=>s.date===date); if(i<1) return;
     const m=metricOf(ser); const prev=Math.max(...ser.slice(0,i).map(s=>s[m]));
     if(ser[i][m]>prev+0.01) out.push(e.name.split(' ').slice(0,2).join(' '));
   });
@@ -1299,9 +1312,20 @@ function progressionSuggestion(name){
                  : {up:false,text:'Busca sumar 1 rep en alguna serie respecto a la vez pasada.'};
   }
   if(allHit){
+    // Siguiente mancuerna que ya has usado en algún ejercicio (son las que tienes)
+    const owned=[]; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0) owned.push(toKg(e.w,e.u)); })); });
+    const next=owned.filter(x=>x>kg+0.3).sort((a,b)=>a-b)[0];
+    if(next){
+      const w=roundHalf(fromKg(next,u));
+      return {up:true,text:'La vez pasada completaste 4×'+top+'. Toca subir a <strong>'+fmtW(w)+' '+u+'</strong> (está bien si bajas a 8–10 reps).',w,u};
+    }
+    if(kg>=dumbbellMaxKg()-0.01){
+      const r=Math.min(...sets.map(e=>e.r));
+      return {up:true,text:'Ya usas tu mancuerna más pesada'+(r>=15?' y vas en '+r+'+ reps':'')+'. Para seguir progresando, hazlo más difícil: <strong>baja en 3–4 seg y pausa 1 seg abajo</strong>, o pasa a la versión a una mano o a una pierna. Si consigues mancuernas más pesadas, súbeles.'};
+    }
     const step=u==='lb'?5:2.5;
     const w=roundHalf(fromKg(kg,u)+step*(easy?2:1));
-    return {up:true,text:'La vez pasada completaste 4×'+top+'. Toca subir: <strong>'+fmtW(w)+' '+u+'</strong> (está bien si bajas a 8–10 reps).',w,u};
+    return {up:true,text:'La vez pasada completaste 4×'+top+'. Toca subir a <strong>'+fmtW(w)+' '+u+'</strong> (está bien si bajas a 8–10 reps).',w,u};
   }
   const repsTot=heavy.reduce((a,e)=>a+e.r,0);
   return {up:false,text:'Quédate en '+fmtW(fromKg(kg,u))+' '+u+' y gánale a <strong>'+repsTot+' reps totales</strong>. Cuando hagas 4×'+top+', subes.'};
@@ -1327,19 +1351,27 @@ function coachInsights(all){
   const out=[], t=todayStr();
   if(!all.length) return out;
   const last28=all.filter(s=>daysBetween(s.date,t)<28);
-  const perWeek=last28.length/4;
-  if(perWeek>=3.5) out.push({k:'good',t:'Constancia de élite: <strong>'+perWeek.toFixed(1).replace('.',',')+' entrenos por semana</strong> en las últimas 4 semanas.'});
-  else if(perWeek>=2.5) out.push({k:'info',t:'Vas a <strong>'+perWeek.toFixed(1).replace('.',',')+' entrenos/semana</strong>. Con una rutina dividida en 4 días, cada día que se salta deja ese músculo ~2 semanas sin estímulo.'});
-  else out.push({k:'warn',t:'Solo <strong>'+perWeek.toFixed(1).replace('.',',')+' entrenos/semana</strong> en las últimas 4 semanas. Si no llegas a 4 días, considera una rutina de 3 días de cuerpo completo.'});
-  // día más saltado
-  const last56=all.filter(s=>daysBetween(s.date,t)<56); const cnt=[0,0,0,0]; last56.forEach(s=>cnt[s.di]++);
-  const mx=Math.max(...cnt), mn=Math.min(...cnt);
-  if(last56.length>=6&&mx-mn>=2){ const lo=cnt.indexOf(mn), hi=cnt.indexOf(mx);
-    out.push({k:'warn',t:'En 8 semanas hiciste el <strong>Día '+(lo+1)+' ('+DAY_LABELS[lo]+') '+mn+' veces</strong> contra '+mx+' del Día '+(hi+1)+'. Ese es el día que más se te cae.'}); }
+  const dates28=new Set(last28.map(s=>s.date)).size, perWeek=dates28/4;
+  // ritmo de la rutina: una vuelta completa = 24 ejercicios × 4 series = 96 series
+  const sets28=last28.reduce((a,s)=>a+s.sets,0), laps=sets28/96;
+  const every=laps>0?Math.round(28/laps):null;
+  const pw=perWeek.toFixed(1).replace('.',',');
+  if(every&&every<=8) out.push({k:'good',t:'Entrenas <strong>'+pw+' días por semana</strong> y completas la rutina entera <strong>cada '+every+' días</strong>: cada músculo recibe su estímulo semanal. Constancia muy buena.'});
+  else if(every&&every<=11) out.push({k:'info',t:'Entrenas '+pw+' días por semana y completas la rutina <strong>cada '+every+' días</strong>. Lo ideal es cada 7: así ningún músculo se queda más de una semana sin trabajar.'});
+  else if(every) out.push({k:'warn',t:'Completas la rutina entera solo <strong>cada '+every+' días</strong>. Cada músculo pasa casi 2 semanas sin estímulo; si no te da el tiempo, conviene una rutina más corta de cuerpo completo.'});
+  // ejercicios que más te saltas (contra el más frecuente de su mismo día, últimas 8 semanas)
+  const from56=addDays(t,-55), skipped=[];
+  DAYS.forEach(d=>{ const c=d.exercises.map(e=>Object.keys(logs[e.name]||{}).filter(x=>x>=from56).length); const mx=Math.max(...c);
+    d.exercises.forEach((e,i)=>{ if(mx>=4&&c[i]<=mx*0.6) skipped.push({n:e.name,c:c[i],mx}); }); });
+  if(skipped.length) out.push({k:'warn',t:'Ejercicios que más te saltas (últimas 8 semanas): '+skipped.map(x=>'<strong>'+esc(x.n)+'</strong> ('+x.c+' de '+x.mx+')').join(', ')+'. Suelen ser los últimos del día: si te falta tiempo o energía, súbelos al principio.'});
+  // tope de mancuernas
+  const dbMax=dumbbellMaxKg(); const capped=[];
+  if(dbMax>0) DAYS.forEach(d=>d.exercises.forEach(e=>{ if(/Puente/.test(e.name)) return; const ser=exerciseSeries(e.name); const l=ser[ser.length-1]; if(l&&l.top&&l.top.kg>=dbMax-0.01&&l.top.r>=14) capped.push(e.name); }));
+  if(capped.length>=2) out.push({k:'warn',t:'<strong>'+capped.length+' ejercicios</strong> ya están en tu mancuerna más pesada ('+fmtW(roundHalf(fromKg(dbMax,cfg.unit)))+' '+cfg.unit+') con 14+ reps: '+capped.slice(0,4).map(esc).join(', ')+(capped.length>4?'…':'.')+' Ahí la rutina deja de ser de fuerza y se vuelve de resistencia. Lo que más te ayudaría ahora son mancuernas más pesadas (o ajustables); mientras tanto, usa tempo lento, pausas y variantes a una mano o a una pierna.'});
   // estancamiento
   const stuck=[]; DAYS.forEach(d=>d.exercises.forEach(e=>{ const st=exerciseStatus(exerciseSeries(e.name)); if(st.k==='stuck') stuck.push(e.name); }));
   const withData=DAYS.flatMap(d=>d.exercises).filter(e=>exerciseSeries(e.name).length>=3).length;
-  if(stuck.length) out.push({k:'warn',t:'<strong>'+stuck.length+' de '+withData+' ejercicios</strong> llevan 4+ sesiones sin récord: '+stuck.slice(0,4).map(esc).join(', ')+(stuck.length>4?'…':'')+'. Aplica la sugerencia de progresión que sale al registrar; si en 3 semanas sigue igual, cambia a una variante.'});
+  if(stuck.length) out.push({k:'warn',t:'<strong>'+stuck.length+' de '+withData+' ejercicios</strong> llevan 4+ sesiones sin récord: '+stuck.slice(0,4).map(esc).join(', ')+(stuck.length>4?'…':'.')+' Aplica la sugerencia de progresión que sale al registrar; si en 3 semanas sigue igual, cambia a una variante.'});
   else if(withData>=3) out.push({k:'good',t:'Ningún ejercicio estancado: todos han marcado récord en sus últimas 3 sesiones.'});
   // empuje vs jalón
   const sm=setsByMuscle(all,addDays(t,-27),t);
@@ -1434,16 +1466,20 @@ function openExercise(name){ bxExercise=name; bxView('ejercicios'); document.get
 function viewResumen(){
   const all=getAllSessions(), t=todayStr(), u=cfg.unit;
   if(!all.length) return '<div class="bx-card bx-empty">Todavía no hay entrenamientos registrados. Marca tus series (con peso y reps) y aquí verás tu progreso.</div>';
-  const last28=all.filter(s=>daysBetween(s.date,t)<28).length;
+  const tdays=trainingDays(all);
+  const last28=tdays.filter(s=>daysBetween(s.date,t)<28).length;
+  const sets28=all.filter(s=>daysBetween(s.date,t)<28).reduce((a,s)=>a+s.sets,0);
+  const lapDays=sets28>0?Math.round(28/(sets28/96)):null;
   // racha: semanas seguidas con al menos 1 entreno (la semana actual cuenta si ya entrenaste)
   const weeks=new Set(all.map(s=>weekStart(s.date))); let w=weekStart(t); if(!weeks.has(w)) w=addDays(w,-7); let streak=0; while(weeks.has(w)){ streak++; w=addDays(w,-7); }
   const v30=volumeBetween(all,addDays(t,-29),t), vPrev=volumeBetween(all,addDays(t,-59),addDays(t,-30));
   const dv=vPrev>0?Math.round((v30/vPrev-1)*100):null;
-  let prs=0; DAYS.forEach(d=>d.exercises.forEach(e=>{ const ser=exerciseSeries(e.name); const m=metricOf(ser); let best=-1; ser.forEach(s=>{ if(s[m]>best+0.01){ if(best>=0&&daysBetween(s.date,t)<30) prs++; best=s[m]; } }); }));
+  let prs=0; DAYS.forEach(d=>d.exercises.forEach(e=>{ const ser=sameKind(exerciseSeries(e.name)); const m=metricOf(ser); let best=-1; ser.forEach(s=>{ if(s[m]>best+0.01){ if(best>=0&&daysBetween(s.date,t)<30) prs++; best=s[m]; } }); }));
   const first=all[all.length-1].date;
   let h='<div class="bx-kpis">'+
-    kpi(all.length,'Entrenamientos','desde '+fmtDateShort(first))+
-    kpi(last28,'Últimas 4 semanas',(last28/4).toFixed(1).replace('.',',')+' por semana · meta 4')+
+    kpi(tdays.length,'Días entrenados','desde '+fmtDateShort(first))+
+    kpi(last28,'Últimas 4 semanas',(last28/4).toFixed(1).replace('.',',')+' días por semana')+
+    (lapDays?kpi(lapDays+'<span style="font-size:.5em"> días</span>','Vuelta completa','lo que tardas en hacer D1→D4 (meta: 7)'):'')+
     kpi(streak,'Semanas seguidas','entrenando al menos 1 vez')+
     kpi(fmtBig(fromKg(v30,u)),'Volumen 30 días ('+u+')',dv===null?'peso × reps':'<span class="'+(dv>=0?'t-up':'t-down')+'">'+(dv>=0?'▲ +':'▼ ')+dv+'%</span> vs 30 días previos')+
     kpi(prs,'Récords en 30 días','mejores marcas estimadas')+
@@ -1455,8 +1491,8 @@ function viewResumen(){
   h+='<div class="bx-card"><h3>Calendario <span class="h-note">últimas 18 semanas</span></h3>'+heatmapHTML(all)+'</div>';
   // volumen semanal
   const bars=[]; let ws=addDays(weekStart(t),-7*11);
-  for(let i=0;i<12;i++){ const we=addDays(ws,6); const ss=all.filter(s=>s.date>=ws&&s.date<=we); const v=fromKg(ss.reduce((a,s)=>a+s.vol,0),u);
-    bars.push({x:fmtDateShort(ws).split(' ')[0]+'/'+(parseD(ws).getMonth()+1),y:v,current:i===11,tip:'<b>Semana del '+fmtDateShort(ws)+'</b><br>'+fmtBig(v)+' '+u+' · '+ss.length+' entreno'+(ss.length===1?'':'s')+(i===11?'<br><span style="color:#999">semana en curso</span>':'')}); ws=addDays(ws,7); }
+  for(let i=0;i<12;i++){ const we=addDays(ws,6); const ss=tdays.filter(s=>s.date>=ws&&s.date<=we); const v=fromKg(ss.reduce((a,s)=>a+s.vol,0),u);
+    bars.push({x:fmtDateShort(ws).split(' ')[0]+'/'+(parseD(ws).getMonth()+1),y:v,current:i===11,tip:'<b>Semana del '+fmtDateShort(ws)+'</b><br>'+fmtBig(v)+' '+u+' · '+ss.length+' día'+(ss.length===1?'':'s')+' entrenado'+(ss.length===1?'':'s')+(i===11?'<br><span style="color:#999">semana en curso</span>':'')}); ws=addDays(ws,7); }
   h+='<div class="bx-card"><h3>Volumen por semana <span class="h-note">'+u+' levantados (peso × reps)</span></h3>'+chartSlot((W,H)=>barChartSVG(bars,'#c8f53a',W,H),180)+'</div>';
   // series por músculo
   const sm=setsByMuscle(all,addDays(t,-27),t);
@@ -1476,7 +1512,7 @@ function heatmapHTML(all){
   for(let i=0;i<N*7;i++){ const d=addDays(start,i);
     if(d>t){ cells+='<div class="hm-cell future"></div>'; continue; }
     const ss=byDate[d]; const pd=parseD(d); const lbl=DOW[pd.getDay()]+' '+fmtDateShort(d);
-    if(ss){ const s=ss[ss.length-1]; cells+='<div class="hm-cell'+(d===t?' today':'')+'" style="background:'+DAYS[s.di].color+'" data-tip="<b>'+lbl+'</b><br>'+ss.map(x=>'Día '+(x.di+1)+' · '+DAY_LABELS[x.di]+' · '+x.sets+' series').join('<br>')+'"></div>'; }
+    if(ss){ const cs=ss.map(x=>DAYS[x.di].color).sort(); const bg=cs.length===1?cs[0]:'linear-gradient(135deg,'+cs.map((c,i)=>c+' '+(i*100/cs.length)+'%,'+c+' '+((i+1)*100/cs.length)+'%').join(',')+')'; cells+='<div class="hm-cell'+(d===t?' today':'')+'" style="background:'+bg+'" data-tip="<b>'+lbl+'</b><br>'+ss.map(x=>'Día '+(x.di+1)+' · '+DAY_LABELS[x.di]+' · '+x.sets+' series').join('<br>')+'"></div>'; }
     else cells+='<div class="hm-cell'+(d===t?' today':'')+'" data-tip="'+lbl+' · descanso"></div>';
   }
   return '<div class="hm" style="grid-template-columns:repeat('+N+',1fr)">'+cells+'</div><div class="hm-foot"><span>Cada columna es una semana (lun → dom)</span><div class="lg">'+DAYS.map((d,i)=>'<span><i style="background:'+d.color+'"></i>D'+(i+1)+'</span>').join('')+'</div></div>';
@@ -1491,7 +1527,7 @@ function viewEjercicios(){
   DAYS.forEach((d,di)=>{
     h+='<div class="exl-day" style="color:'+d.color+'">Día '+(di+1)+' · '+DAY_LABELS[di]+'</div>';
     d.exercises.forEach(e=>{
-      const ser=exerciseSeries(e.name), st=exerciseStatus(ser), m=metricOf(ser);
+      const ser=sameKind(exerciseSeries(e.name)), st=exerciseStatus(ser), m=metricOf(ser);
       const last=ser[ser.length-1];
       const sub=last? (m==='e1rm'? 'Mejor serie última vez: '+fmtW(fromKg(last.top.kg,cfg.unit))+' '+cfg.unit+' × '+last.top.r : last.reps+' reps totales última vez')+' · '+fmtDateShort(last.date) : 'Sin registros todavía';
       const vals=ser.slice(-12).map(s=>s[m]);
@@ -1502,7 +1538,7 @@ function viewEjercicios(){
   return h;
 }
 function viewExercise(name){
-  const di=DAY_OF[name], color=DAYS[di].color, ser=exerciseSeries(name), m=metricOf(ser), u=cfg.unit, st=exerciseStatus(ser);
+  const di=DAY_OF[name], color=DAYS[di].color, ser=sameKind(exerciseSeries(name)), m=metricOf(ser), u=cfg.unit, st=exerciseStatus(ser);
   let h='<button class="bx-back" onclick="bxExercise=null;bxView(\'ejercicios\')">← Todos los ejercicios</button>';
   h+='<div><div class="exl-day" style="color:'+color+'">Día '+(di+1)+' · '+(MUSCLE_OF[name]||'')+'</div><div class="exd-name">'+esc(name)+'</div></div>';
   if(!ser.length) return h+'<div class="bx-card bx-empty">Aún no registras este ejercicio. La próxima vez que lo hagas, anota peso y reps en cada serie.</div>';
@@ -1528,20 +1564,23 @@ function viewExercise(name){
   return h;
 }
 function viewHistorial(){
-  const all=getAllSessions(), u=cfg.unit;
-  if(!all.length) return '<div class="bx-card bx-empty">Sin entrenamientos registrados todavía.</div>';
+  const tdays=trainingDays(getAllSessions()), u=cfg.unit;
+  if(!tdays.length) return '<div class="bx-card bx-empty">Sin entrenamientos registrados todavía.</div>';
   let h='<div class="bx-card">', mon='';
-  all.forEach((s,idx)=>{
-    const d=parseD(s.date); const mk=d.getFullYear()+'-'+d.getMonth();
+  tdays.forEach(td=>{
+    const d=parseD(td.date); const mk=d.getFullYear()+'-'+d.getMonth();
     if(mk!==mon){ mon=mk; h+='<div class="ses-month">'+['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][d.getMonth()]+' '+d.getFullYear()+'</div>'; }
-    const c=DAYS[s.di].color, dark=(s.di===0||s.di===2);
-    h+='<div class="ses" onclick="this.classList.toggle(\'open\')"><div class="ses-top"><span class="ses-date">'+DOW[d.getDay()]+' '+d.getDate()+'</span><span class="ses-day" style="background:'+c+';color:'+(dark?'#0a0a0a':'#fff')+'">D'+(s.di+1)+'</span><span style="font-size:13px;color:#ccc">'+DAY_LABELS[s.di]+'</span><span class="ses-meta">'+s.sets+' series'+(s.vol>0?' · '+fmtBig(fromKg(s.vol,u))+' '+u:'')+(s.mins?' · '+s.mins+' min':'')+'</span></div><div class="ses-detail">';
-    DAYS[s.di].exercises.forEach((e,ei)=>{
-      const lg=logs[e.name]&&logs[e.name][s.date]; const n=s.done[ei]||0;
-      if(!lg&&!n) return;
-      const sets=lg?Object.keys(lg).map(Number).sort((a,b)=>a-b).map(si=>{const x=lg[si]; return '<span class="hist-set"><span class="hs-n">S'+(si+1)+'</span><span class="hs-val">'+fmtW(x.w||0)+' '+x.u+' × '+x.r+'</span>'+(x.x!=null?'<span class="hs-rir">@'+rirTxt(x.x)+'</span>':'')+'</span>';}).join(''):'';
-      const pend=n-(lg?Object.keys(lg).length:0);
-      h+='<div class="ses-ex"><div class="ses-ex-name">'+esc(e.name)+'</div><div class="hist-sets">'+sets+(pend>0?'<span class="hist-set" style="color:#888">'+pend+' sin registrar</span>':'')+'</div></div>';
+    const chips=td.parts.map(s=>{ const dark=(s.di===0||s.di===2); return '<span class="ses-day" style="background:'+DAYS[s.di].color+';color:'+(dark?'#0a0a0a':'#fff')+'">D'+(s.di+1)+'</span>'; }).join('');
+    const label=td.parts.length===1?'<span style="font-size:13px;color:#ccc">'+DAY_LABELS[td.parts[0].di]+'</span>':'';
+    h+='<div class="ses" onclick="this.classList.toggle(\'open\')"><div class="ses-top"><span class="ses-date">'+DOW[d.getDay()]+' '+d.getDate()+'</span>'+chips+label+'<span class="ses-meta">'+td.sets+' series'+(td.vol>0?' · '+fmtBig(fromKg(td.vol,u))+' '+u:'')+(td.mins?' · '+td.mins+' min':'')+'</span></div><div class="ses-detail">';
+    td.parts.forEach(s=>{
+      DAYS[s.di].exercises.forEach((e,ei)=>{
+        const lg=logs[e.name]&&logs[e.name][s.date]; const n=s.done[ei]||0;
+        if(!lg&&!n) return;
+        const sets=lg?Object.keys(lg).map(Number).sort((a,b)=>a-b).map(si=>{const x=lg[si]; return '<span class="hist-set"><span class="hs-n">S'+(si+1)+'</span><span class="hs-val">'+fmtW(x.w||0)+' '+x.u+' × '+x.r+'</span>'+(x.x!=null?'<span class="hs-rir">@'+rirTxt(x.x)+'</span>':'')+'</span>';}).join(''):'';
+        const pend=n-(lg?Object.keys(lg).length:0);
+        h+='<div class="ses-ex"><div class="ses-ex-name"><span style="color:'+DAYS[s.di].color+'">D'+(s.di+1)+'</span> · '+esc(e.name)+'</div><div class="hist-sets">'+sets+(pend>0?'<span class="hist-set" style="color:#888">'+pend+' sin registrar</span>':'')+'</div></div>';
+      });
     });
     h+='</div></div>';
   });

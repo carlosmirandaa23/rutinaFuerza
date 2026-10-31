@@ -69,7 +69,9 @@ El calentamiento general está muy bien. Agrega **1–2 series ligeras del prime
 - **Sugerencia de progresión** en cada serie, con botón "Usar" para poner el peso sugerido.
 - **Reps en reserva** opcionales en cada serie.
 - **Duración real** de la sesión (desde la primera hasta la última serie), y la celebración ahora muestra la duración, el volumen y los récords del día.
-- **Las marcas se limpian solas al día siguiente.** Antes había que reiniciar el día a mano.
+- **Respeta la rotación:** un día de la rutina se puede repartir en varias fechas. Solo se limpian solas las marcas de un día que ya completaste en una fecha anterior; los días a medias se quedan como están.
+- **Entrenos de noche:** lo que registres antes de las 3 a. m. cuenta para el día anterior.
+- **Tope de mancuernas:** si ya usas tu mancuerna más pesada y completas el rango, la sugerencia cambia a tempo lento, pausas o variantes a una mano o a una pierna, en lugar de pedirte un peso que no tienes. Cuando sí hay un peso mayor, sugiere el siguiente que ya has usado en otro ejercicio.
 - **Corrección:** "Reiniciar día" borraba los registros de peso y reps de hoy. Ahora solo quita las marcas.
 - **Respaldo:** descargar o restaurar en JSON y exportar a CSV (Excel o Sheets). Hasta ahora todo vivía solo en el navegador; si se borraban los datos del sitio, se perdían meses.
 
