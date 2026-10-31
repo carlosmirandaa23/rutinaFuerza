@@ -517,6 +517,13 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .plan-line .pl-k{display:inline-block;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#888;font-weight:700;margin-right:6px;}
 .plan-note{color:#ffcf70;}
 .plan-note strong{color:#ffe0a0;}
+
+.plan-tired{margin-top:10px;padding:10px 12px;border-radius:12px;background:rgba(58,245,200,.07);border:1px solid rgba(58,245,200,.25);}
+.plan-tired .pt-h{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--accent3);font-weight:700;margin-bottom:6px;}
+.plan-tired .pt-r{font-size:13px;color:#ccc;line-height:1.5;padding-left:14px;position:relative;margin-top:4px;}
+.plan-tired .pt-r::before{content:'•';position:absolute;left:2px;color:var(--accent3);}
+.plan-tired .pt-r b{color:#fff;}
+.plan-tired .pt-f{font-size:12px;color:#888;margin-top:8px;}
 </style>
 </head>
 <body>
@@ -1777,15 +1784,16 @@ function exercisePlan(name){
   const last=ser[ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
   const lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0, lastR=last.top.r;
   const st=exerciseStatus(ser);
-  const tired=(typeof recoveryCheck==='function')&&recoveryCheck().pts>=2;
+  const rc=(typeof recoveryCheck==='function')?recoveryCheck():{pts:0,reasons:[]};
+  const tired=rc.pts>=2;
   const rirs=last.sets.filter(e=>e.x!=null).map(e=>e.x);
   const avgRir=rirs.length?rirs.reduce((a,b)=>a+b,0)/rirs.length:null;
-  const plan={u,pair:dbCount(name)===2,last:{w:lastW,r:lastR,date:last.date},sets:4,notes:[]};
+  const plan={u,pair:dbCount(name)===2,last:{w:lastW,r:lastR,date:last.date},sets:4,notes:[],tiredReasons:tired?rc.reasons:null};
 
   // Peso corporal: progresar en reps
   if(!(last.e1rm>0)){
     const best=Math.max(...last.sets.map(e=>e.r));
-    plan.w=0; plan.r=tired?best:best+1; plan.rMax=plan.r+1;
+    plan.w=0; plan.r=tired?best:best+1; plan.rMax=tired?plan.r:plan.r+1;
     plan.why=tired?'Hoy mantén: tus datos dicen que vienes cansado.':'Una rep más que tu mejor serie de la vez pasada ('+best+').';
     return plan;
   }
@@ -1812,7 +1820,7 @@ function exercisePlan(name){
   else if(next&&rNext>=minJump&&rNext<=10){ mode='jump'; plan.w=next; plan.r=rNext; }
   else if(next){ mode='reps'; plan.w=lastW; plan.r=rSame; plan.notes.push('El siguiente peso que tienes ('+fmtW(next)+' '+u+') es un salto grande para este ejercicio: sigue sumando reps aquí y, cuando hagas 4 series de 15 o más, intenta '+fmtW(next)+' × '+minJump+'.'); }
   else { mode=rSame>15?'ceiling':'reps'; plan.w=lastW; plan.r=rSame; }
-  plan.rMax=plan.r+(mode==='jump'?2:1);
+  plan.rMax=plan.r+(mode==='jump'?2:mode==='hold'?0:1);
   plan.mode=mode;
 
   if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
@@ -1839,6 +1847,9 @@ function planHTML(name,color){
   if(!p) return '<div class="plan plan-empty">Primera vez con este ejercicio: escoge un peso con el que llegues a 10–12 reps con buena técnica. A partir de ahí la app te dice cuánto hacer.</div>';
   let h='<div class="plan" style="--pc:'+color+'"><div class="plan-top"><div><div class="plan-lbl">Plan de hoy</div><div class="plan-main">'+planWeightTxt(p)+' <span class="pl-x">×</span> '+p.r+(p.rMax>p.r?'<span class="pl-range">–'+p.rMax+'</span>':'')+'</div><div class="plan-sets">'+p.sets+' series · '+(p.pair?'peso por mancuerna':'una mancuerna')+'</div></div></div>';
   h+='<div class="plan-why">'+p.why+'</div>';
+  if(p.tiredReasons&&p.tiredReasons.length){
+    h+='<div class="plan-tired"><div class="pt-h">¿Por qué dice que vienes cansado?</div>'+p.tiredReasons.map(r=>'<div class="pt-r">'+r+'</div>').join('')+'<div class="pt-f">Esto se quita solo cuando bajan las señales; lo más rápido es tomarte un día libre.</div></div>';
+  }
   if(p.warm) h+='<div class="plan-line"><span class="pl-k">Aproximación</span> 1 serie de '+fmtW(p.warm.w)+' '+p.u+' × '+p.warm.r+' antes de empezar.</div>';
   if(p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
   p.notes.forEach(n=>{ h+='<div class="plan-line plan-note">'+n+'</div>'; });
