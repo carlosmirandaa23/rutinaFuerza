@@ -479,6 +479,29 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .bx-btn{background:#1c1c1c;border:1px solid var(--border);color:#ddd;border-radius:100px;padding:10px 16px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
 .bx-btn:hover{border-color:#555;color:#fff;}
 .bx-btn.primary{background:var(--accent1);color:var(--bg);border-color:var(--accent1);}
+
+/* ===== DESCANSO SUGERIDO ===== */
+.rest-overlay{position:fixed;inset:0;z-index:2500;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.82);backdrop-filter:blur(10px);opacity:0;pointer-events:none;transition:opacity .3s;}
+.rest-overlay.active{opacity:1;pointer-events:all;}
+.rest-card{background:var(--surface);border:1px solid rgba(58,245,200,.3);border-radius:26px;padding:32px 26px 24px;max-width:440px;width:100%;max-height:calc(100vh - 40px);overflow-y:auto;transform:translateY(20px);transition:transform .4s cubic-bezier(.17,.67,.37,1.2);}
+.rest-overlay.active .rest-card{transform:none;}
+.rest-emoji{font-size:56px;line-height:1;margin-bottom:12px;}
+.rest-title{font-family:'Bebas Neue',sans-serif;font-size:clamp(40px,9vw,56px);letter-spacing:2px;line-height:1;color:var(--accent3);}
+.rest-sub{font-size:var(--fs-md);color:#ddd;margin:6px 0 18px;}
+.rest-reasons{display:flex;flex-direction:column;gap:10px;margin-bottom:16px;}
+.rest-reason{display:flex;gap:10px;font-size:var(--fs-sm);line-height:1.5;color:#ccc;}
+.rest-reason b{color:#fff;}
+.rest-reason .rr-ico{flex-shrink:0;width:22px;height:22px;border-radius:50%;background:rgba(58,245,200,.14);color:var(--accent3);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;margin-top:1px;}
+.rest-note{font-size:13px;color:#999;line-height:1.55;background:#0d0d0d;border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:18px;}
+.rest-take{width:100%;padding:16px;border:none;border-radius:14px;background:var(--accent3);color:#0a0a0a;font-family:'DM Sans',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
+.rest-skip{width:100%;margin-top:10px;padding:13px;border-radius:14px;background:transparent;border:1px solid var(--border);color:#bbb;font-family:'DM Sans',sans-serif;font-size:14px;font-weight:600;cursor:pointer;}
+.rest-skip:hover{color:#fff;border-color:#555;}
+.rest-banner{display:none;margin-bottom:var(--sp);border:1px solid rgba(58,245,200,.3);background:linear-gradient(135deg,rgba(58,245,200,.12),rgba(58,245,200,.03));border-radius:16px;padding:14px 16px;align-items:center;gap:12px;flex-wrap:wrap;}
+.rest-banner.show{display:flex;}
+.rest-banner .rb-txt{flex:1;min-width:180px;font-size:var(--fs-sm);color:#ddd;line-height:1.45;}
+.rest-banner .rb-txt b{color:var(--accent3);font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:1px;font-weight:400;display:block;}
+.rest-banner button{background:transparent;border:1px solid var(--border);color:#bbb;border-radius:100px;padding:8px 14px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.hm-cell.rest-taken{background:transparent;border:1.5px dashed var(--accent3);}
 </style>
 </head>
 <body>
@@ -528,6 +551,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
     <button class="nav-arrow" id="navNext" onclick="navNext()">&#8594;</button>
   </div>
   <div class="focus-area">
+    <div class="rest-banner" id="restBanner">
+      <div class="rb-txt"><b>HOY ES DÍA DE DESCANSO</b>Recupérate: hoy es cuando el músculo crece. Mañana sigues donde te quedaste.</div>
+      <button onclick="undoRest()">Entrenar de todos modos</button>
+    </div>
     <div id="mobileWarmup" class="mobile-warmup"></div>
     <div id="focusCard"></div>
     <div class="complete-banner" id="banner0" style="background:linear-gradient(135deg,rgba(200,245,58,.15),rgba(200,245,58,.05));border:1px solid rgba(200,245,58,.3)">
@@ -690,6 +717,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
       <div><div class="cfg-label">Timer automatico</div><div class="cfg-desc">Mostrar overlay al marcar serie</div></div>
       <button class="cfg-toggle on" id="toggleAuto" onclick="toggleCfg('auto')"></button>
     </div>
+    <div class="cfg-row">
+      <div><div class="cfg-label">Sugerir descansos</div><div class="cfg-desc">Avisarte cuando tus datos indiquen que necesitas un día libre</div></div>
+      <button class="cfg-toggle on" id="toggleRestAdvice" onclick="toggleCfg('restAdvice')"></button>
+    </div>
     <div class="cfg-row" style="flex-wrap:wrap;gap:10px">
       <div><div class="cfg-label">Respaldo de datos</div><div class="cfg-desc" id="cfgBackupDesc">Tu historial vive solo en este navegador</div></div>
       <div class="bx-actions">
@@ -700,6 +731,19 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
     </div>
     <input type="file" id="importFile" accept="application/json,.json" style="display:none" onchange="importBackup(this)">
     <button class="modal-close" onclick="closeConfig()">Listo</button>
+  </div>
+</div>
+
+<!-- DESCANSO SUGERIDO -->
+<div class="rest-overlay" id="restOverlay">
+  <div class="rest-card">
+    <div class="rest-emoji">&#128564;</div>
+    <div class="rest-title">RELÁJATE</div>
+    <div class="rest-sub">Hoy te hace falta un descanso.</div>
+    <div class="rest-reasons" id="restReasons"></div>
+    <div class="rest-note">Descansar un día no rompe tu racha: se cuenta por semanas. El músculo crece mientras descansas, no mientras entrenas.</div>
+    <button class="rest-take" onclick="takeRest()">&#127769; Tomar el día libre</button>
+    <button class="rest-skip" onclick="skipRest()">Saltármelo, hoy entreno</button>
   </div>
 </div>
 
@@ -845,7 +889,9 @@ const ACCENTS=['#c8f53a','#ff5533','#3af5c8','#f53ac8'];
 const state=DAYS.map(d=>d.exercises.map(()=>Array(4).fill(false)));
 let currentDay=0;
 let currentEx=0;
-const cfg={seriesSec:30,exerciseSec:300,warmupSec:30,sound:true,vibrate:true,auto:true,unit:'kg'};
+const cfg={seriesSec:30,exerciseSec:300,warmupSec:30,sound:true,vibrate:true,auto:true,unit:'kg',restAdvice:true};
+// Decisiones sobre descansos sugeridos: restLog['AAAA-MM-DD'] = 'tomado' | 'saltado'
+let restLog={};
 // Registros de peso y reps por ejercicio:  logs[nombreEjercicio][fecha][indiceSerie] = {r:reps, w:peso, u:'kg'|'lb'}
 let logs={};
 // Sesiones (bitácora): sessions['AAAA-MM-DD|di'] = {date, di, start, end, done:[series hechas por ejercicio]}
@@ -858,7 +904,7 @@ let _animateReveal=true; // controla el revelado progresivo (solo al cambiar de 
 const SAVE_KEY='rutina4dias_v1';
 function saveState(){
   try{
-    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,currentDay,currentEx}));
+    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,currentDay,currentEx}));
   }catch(e){}
 }
 function loadState(){
@@ -879,13 +925,14 @@ function loadState(){
     if(cfg.unit!=='kg'&&cfg.unit!=='lb')cfg.unit='kg';
     if(data.logs&&typeof data.logs==='object'&&!Array.isArray(data.logs))logs=data.logs;
     if(data.sessions&&typeof data.sessions==='object'&&!Array.isArray(data.sessions))sessions=data.sessions;
+    if(data.restLog&&typeof data.restLog==='object'&&!Array.isArray(data.restLog))restLog=data.restLog;
     if(Array.isArray(data.stateDates))data.stateDates.forEach((d,i)=>{ if(i<4)stateDates[i]=d||null; });
     if(typeof data.currentDay==='number'&&data.currentDay>=0&&data.currentDay<DAYS.length)currentDay=data.currentDay;
     if(typeof data.currentEx==='number'&&data.currentEx>=0)currentEx=Math.min(data.currentEx,DAYS[currentDay].exercises.length-1);
   }catch(e){}
 }
 function updateConfigToggles(){
-  ['sound','vibrate','auto'].forEach(k=>{
+  ['sound','vibrate','auto','restAdvice'].forEach(k=>{
     const el=document.getElementById('toggle'+k.charAt(0).toUpperCase()+k.slice(1));
     if(el)el.classList.toggle('on',!!cfg[k]);
   });
@@ -1080,6 +1127,7 @@ function removeLog(){
 function markSetDone(di,ei,si){
   state[di][ei][si]=true;
   touchSession(di);
+  refreshRestBanner();
   const allSets=state[di][ei].every(Boolean);
   const dayDone=state[di].flat().every(Boolean);
   _animateReveal=false;
@@ -1359,6 +1407,11 @@ function coachInsights(all){
   if(every&&every<=8) out.push({k:'good',t:'Entrenas <strong>'+pw+' días por semana</strong> y completas la rutina entera <strong>cada '+every+' días</strong>: cada músculo recibe su estímulo semanal. Constancia muy buena.'});
   else if(every&&every<=11) out.push({k:'info',t:'Entrenas '+pw+' días por semana y completas la rutina <strong>cada '+every+' días</strong>. Lo ideal es cada 7: así ningún músculo se queda más de una semana sin trabajar.'});
   else if(every) out.push({k:'warn',t:'Completas la rutina entera solo <strong>cada '+every+' días</strong>. Cada músculo pasa casi 2 semanas sin estímulo; si no te da el tiempo, conviene una rutina más corta de cuerpo completo.'});
+  // recuperación
+  const rc=recoveryCheck();
+  if(rc.pts>=2) out.unshift({k:'warn',t:'<strong>Tus datos piden un descanso.</strong> '+rc.reasons.join(' ')});
+  const rv=Object.values(restLog), rt=rv.filter(x=>x==='tomado').length, rs=rv.filter(x=>x==='saltado').length;
+  if(rt+rs>0) out.push({k:'info',t:'Descansos sugeridos: <strong>tomaste '+rt+'</strong> y te saltaste '+rs+'.'});
   // ejercicios que más te saltas (contra el más frecuente de su mismo día, últimas 8 semanas)
   const from56=addDays(t,-55), skipped=[];
   DAYS.forEach(d=>{ const c=d.exercises.map(e=>Object.keys(logs[e.name]||{}).filter(x=>x>=from56).length); const mx=Math.max(...c);
@@ -1513,9 +1566,10 @@ function heatmapHTML(all){
     if(d>t){ cells+='<div class="hm-cell future"></div>'; continue; }
     const ss=byDate[d]; const pd=parseD(d); const lbl=DOW[pd.getDay()]+' '+fmtDateShort(d);
     if(ss){ const cs=ss.map(x=>DAYS[x.di].color).sort(); const bg=cs.length===1?cs[0]:'linear-gradient(135deg,'+cs.map((c,i)=>c+' '+(i*100/cs.length)+'%,'+c+' '+((i+1)*100/cs.length)+'%').join(',')+')'; cells+='<div class="hm-cell'+(d===t?' today':'')+'" style="background:'+bg+'" data-tip="<b>'+lbl+'</b><br>'+ss.map(x=>'Día '+(x.di+1)+' · '+DAY_LABELS[x.di]+' · '+x.sets+' series').join('<br>')+'"></div>'; }
-    else cells+='<div class="hm-cell'+(d===t?' today':'')+'" data-tip="'+lbl+' · descanso"></div>';
+    else if(restLog[d]==='tomado') cells+='<div class="hm-cell rest-taken'+(d===t?' today':'')+'" data-tip="<b>'+lbl+'</b><br>Descanso sugerido · tomado"></div>';
+    else cells+='<div class="hm-cell'+(d===t?' today':'')+'" data-tip="'+lbl+' · descanso'+(restLog[d]==='saltado'?' (te saltaste el sugerido)':'')+'"></div>';
   }
-  return '<div class="hm" style="grid-template-columns:repeat('+N+',1fr)">'+cells+'</div><div class="hm-foot"><span>Cada columna es una semana (lun → dom)</span><div class="lg">'+DAYS.map((d,i)=>'<span><i style="background:'+d.color+'"></i>D'+(i+1)+'</span>').join('')+'</div></div>';
+  return '<div class="hm" style="grid-template-columns:repeat('+N+',1fr)">'+cells+'</div><div class="hm-foot"><span>Cada columna es una semana (lun → dom)</span><div class="lg">'+DAYS.map((d,i)=>'<span><i style="background:'+d.color+'"></i>D'+(i+1)+'</span>').join('')+'<span><i style="border:1.5px dashed var(--accent3)"></i>Descanso</span></div></div>';
 }
 function backupCard(){
   const lb=cfg.lastBackup;
@@ -1595,7 +1649,7 @@ function download(name,text,type){
 }
 function exportBackup(){
   cfg.lastBackup=todayStr(); saveState();
-  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions}),'application/json');
+  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions,restLog}),'application/json');
   if(document.getElementById('bitacora').classList.contains('active')) bxView(bxCurrent);
   const bd=document.getElementById('cfgBackupDesc'); if(bd) bd.textContent='Último respaldo: hoy';
 }
@@ -1623,6 +1677,59 @@ function importBackup(input){
   };
   rd.readAsText(f);
 }
+
+// ============================================================
+//  DESCANSO SUGERIDO (se basa en tus propios datos)
+// ============================================================
+function trainingDateSet(){
+  const set=new Set();
+  Object.keys(logs).forEach(n=>Object.keys(logs[n]).forEach(d=>{ if(Object.keys(logs[n][d]).length) set.add(d); }));
+  Object.values(sessions).forEach(s=>{ if((s.done||[]).some(x=>x>0)) set.add(s.date); });
+  return set;
+}
+function trainedOn(date){ return trainingDateSet().has(date); }
+function recoveryCheck(){
+  const t=todayStr(), dates=trainingDateSet(), reasons=[]; let pts=0;
+  // 1) días seguidos entrenando (hasta ayer)
+  let streak=0, d=addDays(t,-1); while(dates.has(d)){ streak++; d=addDays(d,-1); }
+  if(streak>=10){ pts+=2; reasons.push('Llevas <b>'+streak+' días seguidos</b> entrenando sin un solo día libre. Aunque rotes músculos, las articulaciones y el sistema nervioso no descansan.'); }
+  else if(streak>=7){ pts+=1; reasons.push('Llevas <b>'+streak+' días seguidos</b> entrenando.'); }
+  // 2) rendimiento: últimos 2 entrenos contra la vez anterior de cada ejercicio
+  const recent=[...dates].filter(x=>x<t).sort().slice(-2);
+  let down=0, up=0, tot=0; const downNames=[];
+  Object.keys(logs).forEach(n=>{ const ser=sameKind(exerciseSeries(n)); const m=metricOf(ser);
+    ser.forEach((s,i)=>{ if(i<1||recent.indexOf(s.date)<0) return; const a=s[m], b=ser[i-1][m]; if(!(b>0)) return; tot++;
+      if(a<b*0.97){ down++; downNames.push(n); } else if(a>b*1.01) up++; }); });
+  if(tot>=3&&down>=2&&down>up&&down/tot>=0.34){ pts+=2; reasons.push('En tus últimos 2 entrenos <b>rendiste menos en '+down+' de '+tot+' ejercicios</b> que la vez anterior ('+downNames.slice(0,2).map(esc).join(', ')+(down>2?'…':'')+'). Es la señal más clara de fatiga.'); }
+  // 3) carga de los últimos 7 días contra tu promedio semanal
+  const all=getAllSessions(); const setsIn=(a,b)=>all.filter(s=>s.date>=a&&s.date<=b).reduce((x,s)=>x+s.sets,0);
+  const last7=setsIn(addDays(t,-7),addDays(t,-1)), prev=setsIn(addDays(t,-35),addDays(t,-8))/4;
+  if(prev>=20&&last7>=prev*1.3){ pts+=1; reasons.push('En los últimos 7 días hiciste <b>'+last7+' series</b>, '+Math.round((last7/prev-1)*100)+'% más que tu promedio semanal ('+Math.round(prev)+').'); }
+  // 4) muchas series al fallo (si registras reps en reserva)
+  let rir0=0, rirN=0; recent.forEach(dd=>Object.keys(logs).forEach(n=>{ const x=logs[n][dd]; if(x) Object.values(x).forEach(e=>{ if(e&&e.x!=null){ rirN++; if(e.x===0) rir0++; } }); }));
+  if(rirN>=6&&rir0/rirN>=0.5){ pts+=1; reasons.push('El <b>'+Math.round(rir0/rirN*100)+'% de tus series</b> recientes fueron al fallo.'); }
+  // 5) semanas seguidas a tope sin una semana ligera
+  let hw=0, w=addDays(weekStart(t),-7);
+  while(hw<60){ let c=0; for(let i=0;i<7;i++) if(dates.has(addDays(w,i))) c++; if(c>=4){ hw++; w=addDays(w,-7); } else break; }
+  if(hw>=8){ pts+=1; reasons.push('Llevas <b>'+hw+' semanas seguidas</b> a tope (4+ días) sin una semana ligera. Pronto te tocaría una semana de descarga: mismo peso, la mitad de series.'); }
+  return {pts,reasons,streak};
+}
+function maybeSuggestRest(){
+  if(!cfg.restAdvice) return;
+  const t=todayStr();
+  if(restLog[t]||trainedOn(t)) return;           // ya decidiste hoy, o ya entrenaste
+  if(document.getElementById('restOverlay').classList.contains('active')) return;
+  const r=recoveryCheck();
+  const recentSkip=[1,2].some(k=>restLog[addDays(t,-k)]==='saltado'); // si te lo saltaste hace poco, solo insistir con señal fuerte
+  if(r.pts<2||(recentSkip&&r.pts<3)) return;
+  document.getElementById('restReasons').innerHTML=r.reasons.map(x=>'<div class="rest-reason"><div class="rr-ico">!</div><div>'+x+'</div></div>').join('');
+  document.getElementById('restOverlay').classList.add('active');
+}
+function takeRest(){ restLog[todayStr()]='tomado'; saveState(); document.getElementById('restOverlay').classList.remove('active'); refreshRestBanner(); }
+function skipRest(){ restLog[todayStr()]='saltado'; saveState(); document.getElementById('restOverlay').classList.remove('active'); refreshRestBanner(); }
+function undoRest(){ restLog[todayStr()]='saltado'; saveState(); refreshRestBanner(); }
+function refreshRestBanner(){ const b=document.getElementById('restBanner'); if(b) b.classList.toggle('show', !!cfg.restAdvice && restLog[todayStr()]==='tomado' && !trainedOn(todayStr())); }
+document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==='visible'){ refreshRestBanner(); setTimeout(maybeSuggestRest,600); } });
 
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
 let timerDeadline=0; // timestamp absoluto de cuando termina
@@ -1867,6 +1974,7 @@ function toggleCfg(key){
   const el=document.getElementById('toggle'+key.charAt(0).toUpperCase()+key.slice(1));
   el.classList.toggle('on',cfg[key]);
   saveState();
+  if(key==='restAdvice'&&!cfg.restAdvice){ refreshRestBanner(); }
 }
 function openConfig(){updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
 function closeConfig(){document.getElementById('configModal').classList.remove('active');}
@@ -2077,7 +2185,7 @@ function closeCelebration(){
   setTimeout(()=>{confettiParticles=[];},800);
 }
 
-initConfetti();loadState();clearStaleMarks();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();
+initConfetti();loadState();clearStaleMarks();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();refreshRestBanner();setTimeout(maybeSuggestRest,900);
 // ═══════════════════════════════════════════════════
 // FOCUS MODE
 // ═══════════════════════════════════════════════════
