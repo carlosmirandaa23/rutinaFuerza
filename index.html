@@ -524,6 +524,26 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .plan-tired .pt-r::before{content:'•';position:absolute;left:2px;color:var(--accent3);}
 .plan-tired .pt-r b{color:#fff;}
 .plan-tired .pt-f{font-size:12px;color:#888;margin-top:8px;}
+
+/* ===== REFUERZO ===== */
+.extra{border:1px solid color-mix(in srgb,var(--pc) 45%,transparent);background:color-mix(in srgb,var(--pc) 8%,#111);border-radius:16px;padding:14px 16px;margin-bottom:var(--sp);}
+.ex-lbl{font-size:var(--fs-xs);letter-spacing:2px;text-transform:uppercase;color:var(--pc);font-weight:700;margin-bottom:6px;}
+.ex-txt{font-size:var(--fs-sm);color:#ddd;line-height:1.5;}
+.ex-txt strong{color:#fff;}
+.ex-btns{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.ex-add{background:var(--pc);color:#0a0a0a;border:none;border-radius:100px;padding:10px 18px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:13px;cursor:pointer;}
+.ex-no{background:transparent;color:#bbb;border:1px solid var(--border);border-radius:100px;padding:10px 18px;font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;cursor:pointer;}
+
+/* ===== VARIANTES POR BLOQUES ===== */
+.rot{border:1px dashed color-mix(in srgb,var(--pc) 55%,transparent);background:#121212;border-radius:16px;padding:14px 16px;margin-bottom:var(--sp);}
+.rot-lbl{font-size:var(--fs-xs);letter-spacing:2px;text-transform:uppercase;color:var(--pc);font-weight:700;margin-bottom:6px;}
+.rot-txt{font-size:var(--fs-sm);color:#ddd;line-height:1.5;}
+.rot-txt strong{color:#fff;}
+.rot-tip{font-size:13px;color:#aaa;line-height:1.5;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,255,255,.07);}
+.rot-tip strong{color:#ddd;}
+.rot-chip{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;font-size:13px;color:#bbb;border-style:solid;}
+.rot-chip strong{color:#fff;}
+.rot-link{background:transparent;border:none;color:#999;text-decoration:underline;text-underline-offset:3px;font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;padding:4px 0;}
 </style>
 </head>
 <body>
@@ -577,6 +597,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
       <div class="rb-txt"><b>HOY ES DÍA DE DESCANSO</b>Recupérate: hoy es cuando el músculo crece. Mañana sigues donde te quedaste.</div>
       <button onclick="undoRest()">Entrenar de todos modos</button>
     </div>
+    <div id="extraWrap"></div>
     <div id="mobileWarmup" class="mobile-warmup"></div>
     <div id="focusCard"></div>
     <div class="complete-banner" id="banner0" style="background:linear-gradient(135deg,rgba(200,245,58,.15),rgba(200,245,58,.05));border:1px solid rgba(200,245,58,.3)">
@@ -742,6 +763,14 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
     <div class="cfg-row">
       <div><div class="cfg-label">Sugerir descansos</div><div class="cfg-desc">Avisarte cuando tus datos indiquen que necesitas un día libre</div></div>
       <button class="cfg-toggle on" id="toggleRestAdvice" onclick="toggleCfg('restAdvice')"></button>
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-label">Sugerir refuerzos</div><div class="cfg-desc">Series extra cuando un músculo va atrasado</div></div>
+      <button class="cfg-toggle on" id="toggleExtraAdvice" onclick="toggleCfg('extraAdvice')"></button>
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-label">Tengo chaleco lastrado</div><div class="cfg-desc">Activa las variantes que lo usan</div></div>
+      <button class="cfg-toggle" id="toggleVest" onclick="toggleCfg('vest')"></button>
     </div>
     <div class="cfg-row" style="flex-wrap:wrap;gap:10px">
       <div><div class="cfg-label">Respaldo de datos</div><div class="cfg-desc" id="cfgBackupDesc">Tu historial vive solo en este navegador</div></div>
@@ -911,9 +940,13 @@ const ACCENTS=['#c8f53a','#ff5533','#3af5c8','#f53ac8'];
 const state=DAYS.map(d=>d.exercises.map(()=>Array(4).fill(false)));
 let currentDay=0;
 let currentEx=0;
-const cfg={seriesSec:30,exerciseSec:300,warmupSec:30,sound:true,vibrate:true,auto:true,unit:'kg',restAdvice:true};
+const cfg={seriesSec:30,exerciseSec:300,warmupSec:30,sound:true,vibrate:true,auto:true,unit:'kg',restAdvice:true,extraAdvice:true,vest:false};
 // Decisiones sobre descansos sugeridos: restLog['AAAA-MM-DD'] = 'tomado' | 'saltado'
 let restLog={};
+// Refuerzos: extras['AAAA-MM-DD'] = {m, name, di, ei, sets, status:'sugerido'|'agregado'|'descartado', done:[...]}
+let extras={};
+let rotations={};   // bloques de variantes activos
+let rotNext={};     // 'di-ei' -> fecha antes de la cual no se vuelve a proponer variar
 // Registros de peso y reps por ejercicio:  logs[nombreEjercicio][fecha][indiceSerie] = {r:reps, w:peso, u:'kg'|'lb'}
 let logs={};
 // Sesiones (bitácora): sessions['AAAA-MM-DD|di'] = {date, di, start, end, done:[series hechas por ejercicio]}
@@ -926,7 +959,7 @@ let _animateReveal=true; // controla el revelado progresivo (solo al cambiar de 
 const SAVE_KEY='rutina4dias_v1';
 function saveState(){
   try{
-    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,currentDay,currentEx}));
+    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext,currentDay,currentEx}));
   }catch(e){}
 }
 function loadState(){
@@ -947,6 +980,9 @@ function loadState(){
     if(cfg.unit!=='kg'&&cfg.unit!=='lb')cfg.unit='kg';
     if(data.logs&&typeof data.logs==='object'&&!Array.isArray(data.logs))logs=data.logs;
     if(data.sessions&&typeof data.sessions==='object'&&!Array.isArray(data.sessions))sessions=data.sessions;
+    if(data.rotations&&typeof data.rotations==='object'&&!Array.isArray(data.rotations))rotations=data.rotations;
+    if(data.rotNext&&typeof data.rotNext==='object'&&!Array.isArray(data.rotNext))rotNext=data.rotNext;
+    if(data.extras&&typeof data.extras==='object'&&!Array.isArray(data.extras))extras=data.extras;
     if(data.restLog&&typeof data.restLog==='object'&&!Array.isArray(data.restLog))restLog=data.restLog;
     if(Array.isArray(data.stateDates))data.stateDates.forEach((d,i)=>{ if(i<4)stateDates[i]=d||null; });
     if(typeof data.currentDay==='number'&&data.currentDay>=0&&data.currentDay<DAYS.length)currentDay=data.currentDay;
@@ -954,7 +990,7 @@ function loadState(){
   }catch(e){}
 }
 function updateConfigToggles(){
-  ['sound','vibrate','auto','restAdvice'].forEach(k=>{
+  ['sound','vibrate','auto','restAdvice','extraAdvice','vest'].forEach(k=>{
     const el=document.getElementById('toggle'+k.charAt(0).toUpperCase()+k.slice(1));
     if(el)el.classList.toggle('on',!!cfg[k]);
   });
@@ -1016,7 +1052,11 @@ function readNum(el,def){ const v=parseFloat(el.value); return isNaN(v)?def:v; }
 function todayStr(){ const d=new Date(Date.now()-3*3600000); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function fmtDateShort(s){ const p=String(s).split('-'); if(p.length<3) return s; const y=+p[0],m=+p[1],d=+p[2]; let out=d+' '+(MESES[m-1]||''); if(y!==new Date().getFullYear()) out+=" '"+String(y).slice(2); return out; }
 
-function exName(di,ei){ return DAYS[di].exercises[ei].name; }
+// Rotaciones por bloques: rotations['di-ei'] = {v: variante, orig, start, len, reason}
+function activeName(di,ei){ const r=rotations[di+'-'+ei]; return (r&&r.v&&EXDEF[r.v])? r.v : DAYS[di].exercises[ei].name; }
+function activeEx(di,ei){ return EXDEF[activeName(di,ei)]; }
+function exName(di,ei){ return activeName(di,ei); }
+function getEntryN(n,date,si){ return (logs[n]&&logs[n][date]&&logs[n][date][si])?logs[n][date][si]:null; }
 function getEntry(di,ei,date,si){ const n=exName(di,ei); return (logs[n]&&logs[n][date]&&logs[n][date][si])?logs[n][date][si]:null; }
 function prevSessionDate(name){
   const t=todayStr();
@@ -1048,15 +1088,15 @@ function computeRecords(name){
 }
 
 // ----- Modal -----
-function openLogModal(di,ei,si,editing){
-  logTarget={di,ei,si,editing};
-  const name=exName(di,ei), t=todayStr();
+function openLogModal(di,ei,si,editing,nameOverride){
+  const name=nameOverride||exName(di,ei), t=todayStr();
+  logTarget={di,ei,si,editing,name};
   let prefR=12, prefW=0; logUnit=cfg.unit||'kg';
-  const todayE=getEntry(di,ei,t,si);
+  const todayE=getEntryN(name,t,si);
   const pd=prevSessionDate(name);
-  const pe=pd?getEntry(di,ei,pd,si):null;
+  const pe=pd?getEntryN(name,pd,si):null;
   logRir=(editing&&todayE&&todayE.x!=null)?todayE.x:null; updateRirChips();
-  const prevToday=si>0?getEntry(di,ei,t,si-1):null;
+  const prevToday=si>0?getEntryN(name,t,si-1):null;
   const plan=editing?null:exercisePlan(name);
   if(editing&&todayE){ prefR=todayE.r; prefW=todayE.w; logUnit=todayE.u; }
   else if(prevToday){ prefR=prevToday.r; prefW=prevToday.w; logUnit=prevToday.u; }
@@ -1117,7 +1157,7 @@ function stepReps(dir){
 function saveLog(){
   if(!logTarget) return;
   const {di,ei,si,editing}=logTarget;
-  const name=exName(di,ei), t=todayStr();
+  const name=logTarget.name||exName(di,ei), t=todayStr();
   let w=readNum(document.getElementById('logWeight'),0); if(w<0)w=0;
   let r=Math.round(readNum(document.getElementById('logReps'),0)); if(r<0)r=0;
   if(!logs[name])logs[name]={};
@@ -1127,20 +1167,28 @@ function saveLog(){
   if(logRir!=null) entry.x=logRir;
   logs[name][t][si]=entry;
   cfg.unit=logUnit;
+  const isExtra=!!logTarget.extra;
   closeLogModal();
+  if(isExtra){ extraSetDone(si,true); return; }
   if(!editing){ markSetDone(di,ei,si); }
   else{ _animateReveal=false; buildFocusView(); updateProgress(); saveState(); }
 }
 function skipLog(){
   if(!logTarget) return;
   const {di,ei,si,editing}=logTarget;
+  const isExtra=!!logTarget.extra;
   closeLogModal();
+  if(isExtra){ if(!editing) extraSetDone(si,true); return; }
   if(!editing) markSetDone(di,ei,si);
 }
 function removeLog(){
   if(!logTarget) return;
   const {di,ei,si}=logTarget;
-  const name=exName(di,ei), t=todayStr();
+  const name=logTarget.name||exName(di,ei), t=todayStr();
+  if(logTarget.extra){
+    if(logs[name]&&logs[name][t]){ delete logs[name][t][si]; if(Object.keys(logs[name][t]).length===0) delete logs[name][t]; }
+    closeLogModal(); extraSetDone(si,false); return;
+  }
   state[di][ei][si]=false;
   if(logs[name]&&logs[name][t]){ delete logs[name][t][si]; if(Object.keys(logs[name][t]).length===0) delete logs[name][t]; if(logs[name]&&Object.keys(logs[name]).length===0) delete logs[name]; }
   closeLogModal();
@@ -1254,6 +1302,70 @@ const MUSCLE_OF={
 const MUSCLE_ORDER=['Pecho','Espalda','Hombro','Hombro post.','Trapecio','Bíceps','Tríceps','Cuádriceps','Isquios','Glúteo','Gemelos','Core'];
 const DAY_OF={};
 DAYS.forEach((d,di)=>d.exercises.forEach(e=>{DAY_OF[e.name]=di;}));
+// ============================================================
+//  VARIANTES: solo banco (plano / inclinado / declinado) + mancuernas,
+//  seguras por diseño (apoyadas, sentado o en el suelo; sin impulso ni equilibrio)
+//  alt = ejercicios de tu rutina a los que pueden sustituir
+// ============================================================
+const VARIANTS=[
+  // Pecho
+  {name:'Press Plano Agarre Neutro',muscle:'Pecho',alt:['Press Inclinado con Mancuernas','Press de Pecho en Suelo'],badge:'Compuesto',dbn:2,detail:'Banco plano · palmas enfrentadas',tip:'<strong>Hombro protegido:</strong> palmas enfrentadas y codos a ~30° del torso. Baja 2 seg hasta rozar el pecho, sube sin rebotar. Espalda y glúteos pegados al banco.'},
+  {name:'Press en Suelo a una Mano',start:0.8,muscle:'Pecho',alt:['Press de Pecho en Suelo'],badge:'Compuesto',dbn:2,detail:'Tumbado en el suelo · un brazo a la vez',tip:'<strong>El piso pone el límite:</strong> cuando el codo toca el suelo se acaba el rango. Aprieta el core para no girar; el brazo libre apoyado en el piso.'},
+  {name:'Aperturas Planas con Pausa',start:0.8,muscle:'Pecho',alt:['Aperturas en Banco Inclinado'],badge:'Aislamiento',dbn:2,detail:'Banco plano · pausa 1 seg abajo',tip:'<strong>Pausa abajo:</strong> codos ligeramente doblados y fijos, abre hasta sentir estiramiento, quédate 1 seg y sube apretando el pecho.'},
+  {name:'Flexiones Lastradas',bw:true,muscle:'Pecho',alt:['Press de Pecho en Suelo','Press Inclinado con Mancuernas'],badge:'Compuesto',dbn:1,vest:true,detail:'Con chaleco · cuerpo en tabla',tip:'<strong>Cuerpo en tabla:</strong> glúteo y abdomen apretados, el pecho toca el piso en cada rep. Anota el peso del chaleco.'},
+  // Tríceps
+  {name:'Patada de Tríceps con Pecho Apoyado',start:0.4,muscle:'Tríceps',alt:['Extension de Triceps sobre la Cabeza','Rompecraneos (Skull Crushers)'],badge:'Aislamiento',dbn:2,detail:'Pecho en banco inclinado',tip:'<strong>Solo el antebrazo:</strong> pecho apoyado, brazo pegado al cuerpo con el codo atrás. Estira el brazo y aprieta 1 seg. El banco elimina el balanceo.'},
+  {name:'Press Cerrado en Suelo',muscle:'Tríceps',alt:['Rompecraneos (Skull Crushers)'],badge:'Compuesto',dbn:2,detail:'Suelo · mancuernas juntas',tip:'<strong>Mancuernas tocándose:</strong> codos pegados al cuerpo. El piso marca el final del rango, sin rebote posible.'},
+  {name:'Extensión de Tríceps a una Mano Sentado',start:0.5,muscle:'Tríceps',alt:['Extension de Triceps sobre la Cabeza'],badge:'Aislamiento',dbn:2,detail:'Respaldo vertical · un brazo',tip:'<strong>Espalda en el respaldo:</strong> el codo apunta al techo y no se mueve; la otra mano lo sostiene. Baja detrás de la cabeza lento.'},
+  // Espalda
+  {name:'Remo a una Mano Apoyado en Banco',muscle:'Espalda',alt:['Remo Prono en Banco Inclinado','Remo Prono Agarre Neutro'],badge:'Compuesto',dbn:2,detail:'Rodilla y mano en banco plano',tip:'<strong>Espalda plana como mesa:</strong> rodilla y mano del mismo lado en el banco. Jala el codo hacia la cadera, no hacia el hombro, sin girar el torso.'},
+  {name:'Remo con Pecho Apoyado Codos Abiertos',muscle:'Espalda',alt:['Remo Prono en Banco Inclinado','Remo Prono Agarre Neutro'],badge:'Compuesto',dbn:2,detail:'Pecho en banco inclinado · codos a 70–90°',tip:'<strong>Espalda alta:</strong> codos abiertos, jala y junta las escápulas arriba 1 seg. El banco impide usar la cadera.'},
+  // Trapecio
+  {name:'Shrug con Pecho Apoyado',start:0.7,muscle:'Trapecio',alt:['Encogimiento de Hombros (Shrug)'],badge:'Aislamiento',dbn:2,detail:'Pecho en banco a ~45°',tip:'<strong>Hacia atrás y arriba:</strong> brazos colgando, sube los hombros hacia las orejas y hacia atrás, pausa 1 seg. Trabaja el trapecio medio.'},
+  // Bíceps
+  {name:'Curl Araña',start:0.6,muscle:'Bíceps',alt:['Curl en Banco Inclinado','Curl Concentrado'],badge:'Aislamiento',dbn:2,detail:'Pecho en banco inclinado · brazos colgando',tip:'<strong>Cero trampa:</strong> pecho apoyado y brazos verticales. Sube sin mover el codo y aprieta arriba. Usa menos peso que en el curl normal.'},
+  {name:'Curl Alterno Sentado con Respaldo',muscle:'Bíceps',alt:['Curl Martillo Sentado','Curl Concentrado'],badge:'Aislamiento',dbn:2,detail:'Respaldo vertical · un brazo a la vez',tip:'<strong>Espalda pegada:</strong> gira la palma hacia arriba al subir. Un brazo a la vez, el codo no se va hacia adelante.'},
+  {name:'Curl Martillo Cruzado Sentado',muscle:'Bíceps',alt:['Curl Martillo Sentado'],badge:'Aislamiento',dbn:2,detail:'Sentado · hacia el hombro contrario',tip:'<strong>Cruzado:</strong> agarre neutro, sube la mancuerna hacia el hombro contrario. Más braquial y antebrazo.'},
+  // Hombro
+  {name:'Elevación Lateral Acostado de Lado',start:0.5,muscle:'Hombro',alt:['Elevacion Lateral Sentado'],badge:'Aislamiento',dbn:2,detail:'De lado en banco inclinado a ~45°',tip:'<strong>Tensión abajo:</strong> de lado sobre el banco, sube la mancuerna hasta la vertical. Trabaja justo la parte que la lateral sentado no alcanza. Muy ligero.'},
+  {name:'Press de Hombros Agarre Neutro Sentado',muscle:'Hombro',alt:['Press de Hombros en Banco Inclinado'],badge:'Compuesto',dbn:2,detail:'Respaldo vertical · palmas enfrentadas',tip:'<strong>Más amable con el hombro:</strong> palmas enfrentadas, codos al frente. Espalda en el respaldo todo el tiempo.'},
+  {name:'Elevación en Y con Pecho Apoyado',start:0.5,muscle:'Hombro',alt:['Elevacion Frontal Alterna Sentado'],badge:'Aislamiento',dbn:2,detail:'Pecho en banco inclinado · pulgares arriba',tip:'<strong>Forma de Y:</strong> pecho apoyado, sube los brazos en diagonal con los pulgares arriba. Peso muy ligero.'},
+  // Hombro posterior
+  {name:'Remo Alto con Pecho Apoyado',start:0.7,muscle:'Hombro post.',alt:['Pajaro Rear Delt Fly Boca Abajo'],badge:'Deltoides posterior',dbn:2,detail:'Pecho en banco inclinado · codos a la altura del hombro',tip:'<strong>Codos arriba y afuera:</strong> jala hasta que los codos pasen la espalda y aprieta. El banco impide el impulso.'},
+  {name:'Rotación Externa Acostado de Lado',start:0.25,muscle:'Hombro post.',alt:['Pajaro Rear Delt Fly Boca Abajo'],badge:'Salud de hombro',dbn:2,detail:'De lado en banco plano · codo pegado',tip:'<strong>Salud de hombro:</strong> codo pegado a la cadera (pon una toalla). Gira el antebrazo hacia arriba lento. Muy ligero, 12–20 reps.'},
+  // Core
+  {name:'Crunch Inverso en Banco Declinado',bw:true,muscle:'Core',alt:['Dead Bug','Plancha con Toque de Hombro'],badge:'Core',dbn:1,detail:'Banco declinado · agarrado del banco',tip:'<strong>Sin balanceo:</strong> cabeza en lo alto, agárrate del banco. Lleva las rodillas al pecho despegando la cadera y baja en 3 seg.'},
+  {name:'Plancha Lateral',bw:true,muscle:'Core',alt:['Plancha con Toque de Hombro'],badge:'Core antirotación',dbn:1,detail:'Codo bajo el hombro · cada lado',tip:'<strong>Línea recta:</strong> codo bajo el hombro, cadera arriba. Anota segundos como reps.'},
+  {name:'Hollow Hold',bw:true,muscle:'Core',alt:['Dead Bug'],badge:'Core profundo',dbn:1,detail:'Boca arriba · espalda baja pegada',tip:'<strong>Espalda baja en el piso:</strong> brazos y piernas estirados y despegados. Si se despega la espalda, dobla las rodillas. Anota segundos como reps.'},
+  {name:'Plancha Lastrada',bw:true,muscle:'Core',alt:['Plancha con Toque de Hombro'],badge:'Core',dbn:1,vest:true,detail:'Con chaleco',tip:'<strong>Tabla:</strong> glúteo y abdomen apretados. Anota el peso del chaleco y los segundos como reps.'},
+  // Cuádriceps
+  {name:'Sentadilla Goblet con Pausa',start:0.85,muscle:'Cuádriceps',alt:['Sentadilla Goblet con Mancuerna'],badge:'Compuesto',dbn:1,detail:'Pausa de 2 seg abajo',tip:'<strong>Pausa sin rebote:</strong> baja y quédate 2 seg abajo antes de subir. Con el mismo peso cuesta mucho más.'},
+  {name:'Split Squat Estático Agarrado del Banco',start:0.6,muscle:'Cuádriceps',alt:['Zancada Reversa con Mancuernas','Sentadilla Goblet con Mancuerna'],badge:'Compuesto',dbn:1,detail:'Pies fijos · una mano en el banco',tip:'<strong>Sin pasos ni equilibrio:</strong> pies fijos, una mano en el banco y la mancuerna en la otra. Baja la rodilla de atrás casi al piso. Cada pierna.'},
+  // Isquios
+  {name:'Puente de Isquios con Pies en el Banco',start:0.4,muscle:'Isquios',alt:['Peso Muerto Rumano con Mancuernas'],badge:'Isquios',dbn:1,detail:'Talones en banco plano',tip:'<strong>Empuja con talones:</strong> boca arriba, talones sobre el banco, rodillas poco dobladas. Sube la cadera; mancuerna en la cadera para más carga.'},
+  {name:'Peso Muerto Rumano con Pausa',start:0.85,muscle:'Isquios',alt:['Peso Muerto Rumano con Mancuernas'],badge:'Compuesto',dbn:2,detail:'Pausa de 1 seg abajo',tip:'<strong>Bisagra con pausa:</strong> baja con espalda recta hasta sentir el estiramiento y quédate 1 seg. Sin rebote.'},
+  // Glúteo
+  {name:'Hip Thrust con Espalda en el Banco',muscle:'Glúteo',alt:['Puente de Gluteo con Mancuerna','Sentadilla Sumo con Mancuerna'],badge:'Compuesto',dbn:1,detail:'Omóplatos en banco plano · mancuerna en la cadera',tip:'<strong>Como mesa arriba:</strong> omóplatos en el borde del banco, sube hasta que el torso quede horizontal y aprieta 2 seg.'},
+  {name:'Hip Thrust a una Pierna',start:0.4,muscle:'Glúteo',alt:['Puente de Gluteo con Mancuerna','Sentadilla Sumo con Mancuerna'],badge:'Aislamiento gluteo',dbn:1,detail:'Espalda en banco · una pierna',tip:'<strong>Doble carga por pierna:</strong> omóplatos en el banco, una pierna en el aire. Cadera nivelada, sin girar.'},
+  // Gemelos
+  {name:'Elevación de Talones Sentado',muscle:'Gemelos',alt:['Elevacion de Talones Calf Raise'],badge:'Gemelos (sóleo)',dbn:1,detail:'Sentado · mancuerna sobre las rodillas',tip:'<strong>Rodilla doblada = sóleo:</strong> puntas sobre un libro o disco, mancuerna en las rodillas. Sube 2 seg, pausa, baja 3 seg.'},
+  {name:'Elevación de Talones a una Pierna',start:0.5,muscle:'Gemelos',alt:['Elevacion de Talones Calf Raise'],badge:'Gemelos',dbn:1,detail:'Mano en la pared · una pierna',tip:'<strong>Mano en la pared:</strong> mancuerna en la mano del mismo lado. Sube 2 seg, pausa arriba, baja 3 seg hasta estirar.'},
+];
+// Registro único de ejercicios (rutina + variantes)
+const EXDEF={};
+DAYS.forEach((d,di)=>d.exercises.forEach((e,ei)=>{ EXDEF[e.name]=Object.assign({},e,{di,ei,muscle:MUSCLE_OF[e.name]}); }));
+VARIANTS.forEach(v=>{
+  const o=EXDEF[v.alt[0]];
+  EXDEF[v.name]=Object.assign({},v,{di:o.di,ei:o.ei,variant:true});
+  DAY_OF[v.name]=o.di; MUSCLE_OF[v.name]=v.muscle;
+});
+function variantAllowed(v){ return !v.vest||!!cfg.vest; }
+function variantsFor(orig){ return VARIANTS.filter(v=>v.alt.indexOf(orig)>=0&&variantAllowed(v)); }
+function namesOfDay(di){ return Object.keys(EXDEF).filter(n=>EXDEF[n].di===di); }
+function slotNames(di,ei){ const o=DAYS[di].exercises[ei].name; return [o].concat(VARIANTS.filter(v=>v.alt.indexOf(o)>=0).map(v=>v.name)); }
+function slotOf(name,di){ const d=EXDEF[name]; if(!d) return -1; if(!d.variant) return d.di===di?d.ei:-1; for(const k in rotations){ if(rotations[k].v===name&&+k.split('-')[0]===di) return +k.split('-')[1]; } for(let ei=0;ei<DAYS[di].exercises.length;ei++){ if(d.alt.indexOf(DAYS[di].exercises[ei].name)>=0) return ei; } return -1; }
+function lastDate(name){ const ds=Object.keys(logs[name]||{}).sort(); return ds.length?ds[ds.length-1]:''; }
+
 
 function parseD(s){ const p=s.split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
 function dStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
@@ -1274,12 +1386,12 @@ function touchSession(di){
   s.end=now; s.done=done; sessions[k]=s;
   stateDates[di]=t;
 }
-function hasLogsOn(date,di){ return DAYS[di].exercises.some(e=>logs[e.name]&&logs[e.name][date]&&Object.keys(logs[e.name][date]).length); }
+function hasLogsOn(date,di){ return namesOfDay(di).some(n=>logs[n]&&logs[n][date]&&Object.keys(logs[n][date]).length); }
 // Un día que ya completaste en una fecha anterior se limpia solo al volver a él.
 // Los días a medias se respetan: puedes repartir un día en varias fechas (rotación).
 function inferDayDate(di){
   let last=null;
-  DAYS[di].exercises.forEach(e=>{ Object.keys(logs[e.name]||{}).forEach(d=>{ if(!last||d>last) last=d; }); });
+  namesOfDay(di).forEach(n=>{ Object.keys(logs[n]||{}).forEach(d=>{ if(!last||d>last) last=d; }); });
   Object.values(sessions).forEach(s=>{ if(s.di===di&&(!last||s.date>last)) last=s.date; });
   return last;
 }
@@ -1305,13 +1417,13 @@ function getAllSessions(){
   Object.keys(sessions).forEach(k=>{ const s=sessions[k]; map[k]={date:s.date,di:s.di,start:s.start||null,end:s.end||null,done:(s.done||[]).slice()}; });
   Object.keys(logs).forEach(name=>{
     const di=DAY_OF[name]; if(di===undefined) return;
-    const ei=DAYS[di].exercises.findIndex(e=>e.name===name);
+    const ei=slotOf(name,di);
     Object.keys(logs[name]).forEach(date=>{
       const sets=logs[name][date]; const n=Object.keys(sets).length; if(!n) return;
       const k=date+'|'+di;
       let s=map[k];
       if(!s) s=map[k]={date,di,start:null,end:null,done:Array(DAYS[di].exercises.length).fill(0),legacy:true};
-      if((s.done[ei]||0)<n) s.done[ei]=n;
+      if(ei>=0&&(s.legacy||!EXDEF[name].variant)&&(s.done[ei]||0)<n) s.done[ei]=n;
       Object.values(sets).forEach(e=>{ if(e&&e.t){ if(!s.start||e.t<s.start) s.start=e.t; if(!s.end||e.t>s.end) s.end=e.t; } });
     });
   });
@@ -1327,7 +1439,7 @@ function trainingDays(all){
 function sessionSummary(date,di,s){
   s=s||sessions[date+'|'+di]||{};
   let vol=0,logged=0;
-  DAYS[di].exercises.forEach(e=>{ const d=logs[e.name]&&logs[e.name][date]; if(!d) return; const dbn=dbCount(e.name); Object.values(d).forEach(x=>{ if(!x) return; logged++; vol+=toKg(x.w||0,x.u)*(x.r||0)*dbn; }); });
+  namesOfDay(di).map(n=>({name:n})).forEach(e=>{ const d=logs[e.name]&&logs[e.name][date]; if(!d) return; const dbn=dbCount(e.name); Object.values(d).forEach(x=>{ if(!x) return; logged++; vol+=toKg(x.w||0,x.u)*(x.r||0)*dbn; }); });
   const done=(s.done||[]).reduce((a,b)=>a+(b||0),0);
   const sets=Math.max(done,logged);
   // duración: de la primera a la última serie + un descanso promedio
@@ -1364,7 +1476,7 @@ function exerciseStatus(series){
 }
 function prsOn(date,di){
   const out=[];
-  DAYS[di].exercises.forEach(e=>{
+  namesOfDay(di).map(n=>({name:n})).forEach(e=>{
     const ser=sameKind(exerciseSeries(e.name)); const i=ser.findIndex(s=>s.date===date); if(i<1) return;
     const m=metricOf(ser); const prev=Math.max(...ser.slice(0,i).map(s=>s[m]));
     if(ser[i][m]>prev+0.01) out.push(e.name.split(' ').slice(0,2).join(' '));
@@ -1442,7 +1554,7 @@ function coachInsights(all){
   if(rt+rs>0) out.push({k:'info',t:'Descansos sugeridos: <strong>tomaste '+rt+'</strong> y te saltaste '+rs+'.'});
   // ejercicios que más te saltas (contra el más frecuente de su mismo día, últimas 8 semanas)
   const from56=addDays(t,-55), skipped=[];
-  DAYS.forEach(d=>{ const c=d.exercises.map(e=>Object.keys(logs[e.name]||{}).filter(x=>x>=from56).length); const mx=Math.max(...c);
+  DAYS.forEach((d,ddi)=>{ const c=d.exercises.map((e,eei)=>{ const ds=new Set(); slotNames(ddi,eei).forEach(n=>Object.keys(logs[n]||{}).forEach(x=>{ if(x>=from56) ds.add(x); })); return ds.size; }); const mx=Math.max(...c);
     d.exercises.forEach((e,i)=>{ if(mx>=4&&c[i]<=mx*0.6) skipped.push({n:e.name,c:c[i],mx}); }); });
   if(skipped.length) out.push({k:'warn',t:'Ejercicios que más te saltas (últimas 8 semanas): '+skipped.map(x=>'<strong>'+esc(x.n)+'</strong> ('+x.c+' de '+x.mx+')').join(', ')+'. Suelen ser los últimos del día: si te falta tiempo o energía, súbelos al principio.'});
   // tope de mancuernas
@@ -1608,12 +1720,15 @@ function viewEjercicios(){
   let h='<div class="bx-card"><h3>Tus ejercicios <span class="h-note">toca uno para ver su progreso</span></h3>';
   DAYS.forEach((d,di)=>{
     h+='<div class="exl-day" style="color:'+d.color+'">Día '+(di+1)+' · '+DAY_LABELS[di]+'</div>';
-    d.exercises.forEach(e=>{
+    const vlist=namesOfDay(di).filter(n=>EXDEF[n].variant&&(logs[n]||Object.values(rotations).some(r=>r.v===n)));
+    d.exercises.map(e=>e.name).concat(vlist).forEach((nm,k)=>{
+      const e={name:nm};
+      if(k===d.exercises.length) h+='<div class="exl-sub" style="margin:10px 4px 2px;letter-spacing:1px;text-transform:uppercase">Variantes</div>';
       const ser=sameKind(exerciseSeries(e.name)), st=exerciseStatus(ser), m=metricOf(ser);
       const last=ser[ser.length-1];
       const sub=last? (m==='e1rm'? 'Mejor serie última vez: '+fmtW(fromKg(last.top.kg,cfg.unit))+' '+cfg.unit+' × '+last.top.r : last.reps+' reps totales última vez')+' · '+fmtDateShort(last.date) : 'Sin registros todavía';
       const vals=ser.slice(-12).map(s=>s[m]);
-      h+='<div class="exl-row" onclick="openExercise(\''+e.name.replace(/'/g,"\\'")+'\')"><div><div class="exl-name">'+esc(e.name)+'</div><div class="exl-sub">'+sub+'</div></div><span class="chip chip-'+st.k+'">'+st.label+'</span>'+chartSlot((W,H)=>sparkSVG(vals,d.color,W,H),28)+'</div>';
+      h+='<div class="exl-row" onclick="openExercise(\''+e.name.replace(/'/g,"\\'")+'\')"><div><div class="exl-name">'+esc(e.name)+(Object.values(rotations).some(r=>r.v===e.name)?' <span class="chip chip-up">en bloque</span>':'')+'</div><div class="exl-sub">'+sub+'</div></div><span class="chip chip-'+st.k+'">'+st.label+'</span>'+chartSlot((W,H)=>sparkSVG(vals,d.color,W,H),28)+'</div>';
     });
   });
   h+='</div><div class="bx-card bx-empty" style="font-size:13px">Para comparar sesiones se usa el <strong style="color:#fff">1RM estimado</strong> (fórmula de Epley: peso × (1 + reps/30)). Así 10 kg × 12 y 12,5 kg × 9 se pueden comparar en una misma escala. En ejercicios sin peso se usan las reps totales.</div>';
@@ -1657,12 +1772,20 @@ function viewHistorial(){
     const label=td.parts.length===1?'<span style="font-size:13px;color:#ccc">'+DAY_LABELS[td.parts[0].di]+'</span>':'';
     h+='<div class="ses" onclick="this.classList.toggle(\'open\')"><div class="ses-top"><span class="ses-date">'+DOW[d.getDay()]+' '+d.getDate()+'</span>'+chips+label+'<span class="ses-meta">'+td.sets+' series'+(td.vol>0?' · '+fmtBig(fromKg(td.vol,u))+' '+u:'')+(td.mins?' · '+td.mins+' min':'')+'</span></div><div class="ses-detail">';
     td.parts.forEach(s=>{
-      DAYS[s.di].exercises.forEach((e,ei)=>{
-        const lg=logs[e.name]&&logs[e.name][s.date]; const n=s.done[ei]||0;
-        if(!lg&&!n) return;
-        const sets=lg?Object.keys(lg).map(Number).sort((a,b)=>a-b).map(si=>{const x=lg[si]; return '<span class="hist-set"><span class="hs-n">S'+(si+1)+'</span><span class="hs-val">'+fmtW(x.w||0)+' '+x.u+' × '+x.r+'</span>'+(x.x!=null?'<span class="hs-rir">@'+rirTxt(x.x)+'</span>':'')+'</span>';}).join(''):'';
-        const pend=n-(lg?Object.keys(lg).length:0);
-        h+='<div class="ses-ex"><div class="ses-ex-name"><span style="color:'+DAYS[s.di].color+'">D'+(s.di+1)+'</span> · '+esc(e.name)+'</div><div class="hist-sets">'+sets+(pend>0?'<span class="hist-set" style="color:#888">'+pend+' sin registrar</span>':'')+'</div></div>';
+      const shown=new Set();
+      DAYS[s.di].exercises.forEach((e0,ei)=>{
+        const names=namesOfDay(s.di).filter(n=>slotOf(n,s.di)===ei&&logs[n]&&logs[n][s.date]&&!shown.has(n));
+        names.forEach(n=>shown.add(n));
+        const n=s.done[ei]||0; let loggedN=0;
+        if(!names.length&&!n) return;
+        const an=activeName(s.di,ei); const list=names.length?names:(shown.has(an)?[]:[an]); if(!list.length) return;
+        list.forEach((nm,k)=>{
+          const lg=logs[nm]&&logs[nm][s.date];
+          const sets=lg?Object.keys(lg).map(Number).sort((a,b)=>a-b).map(si=>{const x=lg[si]; return '<span class="hist-set"><span class="hs-n">S'+(si+1)+'</span><span class="hs-val">'+fmtW(x.w||0)+' '+x.u+' × '+x.r+'</span>'+(x.x!=null?'<span class="hs-rir">@'+rirTxt(x.x)+'</span>':'')+'</span>';}).join(''):'';
+          if(lg) loggedN+=Object.keys(lg).length;
+          const pend=(k===list.length-1)?n-loggedN:0;
+          h+='<div class="ses-ex"><div class="ses-ex-name"><span style="color:'+DAYS[s.di].color+'">D'+(s.di+1)+'</span> · '+esc(nm)+(EXDEF[nm]&&EXDEF[nm].variant?' <span style="color:#777">(variante)</span>':'')+'</div><div class="hist-sets">'+sets+(pend>0?'<span class="hist-set" style="color:#888">'+pend+' sin registrar</span>':'')+'</div></div>';
+        });
       });
     });
     h+='</div></div>';
@@ -1678,7 +1801,7 @@ function download(name,text,type){
 }
 function exportBackup(){
   cfg.lastBackup=todayStr(); saveState();
-  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions,restLog}),'application/json');
+  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext}),'application/json');
   if(document.getElementById('bitacora').classList.contains('active')) bxView(bxCurrent);
   const bd=document.getElementById('cfgBackupDesc'); if(bd) bd.textContent='Último respaldo: hoy';
 }
@@ -1732,7 +1855,7 @@ function recoveryCheck(){
   if(tot>=3&&down>=2&&down>up&&down/tot>=0.34){ pts+=2; reasons.push('En tus últimos 2 entrenos <b>rendiste menos en '+down+' de '+tot+' ejercicios</b> que la vez anterior ('+downNames.slice(0,2).map(esc).join(', ')+(down>2?'…':'')+'). Es la señal más clara de fatiga.'); }
   // 3) carga de los últimos 7 días contra tu promedio semanal
   const all=getAllSessions(); const setsIn=(a,b)=>all.filter(s=>s.date>=a&&s.date<=b).reduce((x,s)=>x+s.sets,0);
-  const last7=setsIn(addDays(t,-7),addDays(t,-1)), prev=setsIn(addDays(t,-35),addDays(t,-8))/4;
+  const last7=setsIn(addDays(t,-7),addDays(t,-1)), prev=Math.max(setsIn(addDays(t,-35),addDays(t,-8))/4, setsIn(addDays(t,-63),addDays(t,-8))/8);
   if(prev>=20&&last7>=prev*1.3){ pts+=1; reasons.push('En los últimos 7 días hiciste <b>'+last7+' series</b>, '+Math.round((last7/prev-1)*100)+'% más que tu promedio semanal ('+Math.round(prev)+').'); }
   // 4) muchas series al fallo (si registras reps en reserva)
   let rir0=0, rirN=0; recent.forEach(dd=>Object.keys(logs).forEach(n=>{ const x=logs[n][dd]; if(x) Object.values(x).forEach(e=>{ if(e&&e.x!=null){ rirN++; if(e.x===0) rir0++; } }); }));
@@ -1766,7 +1889,7 @@ document.addEventListener('visibilitychange',()=>{ if(document.visibilityState==
 // Cuántas mancuernas mueves en el ejercicio (el peso se anota por mancuerna).
 // 2 = dos mancuernas o un brazo/pierna a la vez; 1 = una sola mancuerna o peso corporal.
 const ONE_DB=['Extension de Triceps sobre la Cabeza','Pullover con Mancuerna','Plancha con Toque de Hombro','Dead Bug','Sentadilla Goblet con Mancuerna','Puente de Gluteo con Mancuerna','Sentadilla Sumo con Mancuerna','Elevacion de Talones Calf Raise'];
-function dbCount(name){ const o=cfg.dbCount&&cfg.dbCount[name]; return o===1||o===2? o : (ONE_DB.indexOf(name)>=0?1:2); }
+function dbCount(name){ const o=cfg.dbCount&&cfg.dbCount[name]; if(o===1||o===2) return o; const d=EXDEF[name]; if(d&&d.dbn) return d.dbn; return ONE_DB.indexOf(name)>=0?1:2; }
 function setDbCount(name,n){ cfg.dbCount=cfg.dbCount||{}; cfg.dbCount[name]=n; saveState(); bxView('ejercicios'); }
 
 // Pesos que tienes: los que has usado en cualquier ejercicio, en esa unidad
@@ -1780,7 +1903,7 @@ function repsFor(targetE1,w){ return Math.max(1,Math.ceil(30*(targetE1/w-1)-1e-9
 function exercisePlan(name){
   const t=todayStr();
   const ser=sameKind(exerciseSeries(name).filter(s=>s.date<t));
-  if(!ser.length) return null;
+  if(!ser.length) return firstTimePlan(name);
   const last=ser[ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
   const lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0, lastR=last.top.r;
   const st=exerciseStatus(ser);
@@ -1812,7 +1935,7 @@ function exercisePlan(name){
   const rNext=next?repsFor(target,next):null;
 
   // compuestos aguantan saltos a 6 reps; en aislamiento (curls, elevaciones) no menos de 8 por las articulaciones
-  const exDef=DAYS[DAY_OF[name]].exercises.find(e=>e.name===name);
+  const exDef=EXDEF[name];
   const minJump=(exDef&&/Compuesto/.test(exDef.badge))?6:8;
   let mode;
   if(tired){ mode='hold'; plan.w=lastW; plan.r=lastR; }
@@ -1837,13 +1960,27 @@ function exercisePlan(name){
   else if(mode==='reps'&&next&&rNext>=minJump&&rNext<=10) plan.alt={w:next,r:rNext,txt:'Si te sientes muy bien: '+fmtW(next)+' × '+rNext+'.'};
 
   // Serie de aproximación para compuestos (≈55% del peso de trabajo)
-  const ex=DAYS[DAY_OF[name]].exercises.find(e=>e.name===name);
+  const ex=EXDEF[name];
   if(ex&&/Compuesto/.test(ex.badge)&&plan.w>0&&!tired){ const goal=plan.w*0.55; const wu=owned.filter(w=>w<plan.w).reduce((b,w)=>Math.abs(w-goal)<Math.abs(b-goal)?w:b, owned[0]); if(wu&&wu<plan.w) plan.warm={w:wu,r:10}; }
   return plan;
+}
+function firstTimePlan(name){
+  const d=EXDEF[name]; if(!d||!d.variant) return null;
+  const pair=dbCount(name)===2;
+  if(d.bw) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair:false,notes:[],why:'Primera vez: '+(d.vest?'pon el chaleco y ':'')+'busca 10–12 reps con técnica perfecta. Si es un ejercicio de aguantar, anota los segundos como reps.'};
+  const orig=d.alt.map(n=>({n,ser:sameKind(exerciseSeries(n))})).find(o=>o.ser.length&&o.ser[o.ser.length-1].e1rm>0);
+  if(!orig) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair,notes:[],why:'Primera vez: escoge un peso con el que llegues a 10–12 reps con buena técnica.'};
+  const last=orig.ser[orig.ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
+  const goal=fromKg(last.top.kg,u)*(d.start||0.7);
+  const owned=ownedWeights(u,name);
+  const below=owned.filter(w=>w<=goal+0.01);
+  const w=below.length?below[below.length-1]:(owned[0]||Math.max(1,roundHalf(goal)));
+  return {first:true,w,u,r:10,rMax:12,sets:4,pair,notes:[],why:'Primera vez: empieza con ~'+Math.round((d.start||0.7)*100)+'% de lo que usas en '+esc(orig.n)+' y busca 10–12 reps. Si te salen más de 15, sube la próxima vez.'};
 }
 function planWeightTxt(p){ return p.w>0? fmtW(p.w)+' '+p.u+(p.pair?' <span class="pl-per">c/u</span>':'') : 'Sin peso'; }
 function planHTML(name,color){
   const p=exercisePlan(name);
+  if(p&&p.first) return '<div class="plan" style="--pc:'+color+'"><div class="plan-lbl">Plan de hoy · primera vez</div><div class="plan-main">'+(p.w>0?planWeightTxt(p):'Sin peso')+' <span class="pl-x">×</span> '+p.r+'<span class="pl-range">–'+p.rMax+'</span></div><div class="plan-why">'+p.why+'</div></div>';
   if(!p) return '<div class="plan plan-empty">Primera vez con este ejercicio: escoge un peso con el que llegues a 10–12 reps con buena técnica. A partir de ahí la app te dice cuánto hacer.</div>';
   let h='<div class="plan" style="--pc:'+color+'"><div class="plan-top"><div><div class="plan-lbl">Plan de hoy</div><div class="plan-main">'+planWeightTxt(p)+' <span class="pl-x">×</span> '+p.r+(p.rMax>p.r?'<span class="pl-range">–'+p.rMax+'</span>':'')+'</div><div class="plan-sets">'+p.sets+' series · '+(p.pair?'peso por mancuerna':'una mancuerna')+'</div></div></div>';
   h+='<div class="plan-why">'+p.why+'</div>';
@@ -1857,11 +1994,156 @@ function planHTML(name,color){
 }
 function planText(p){ return p.w>0? fmtW(p.w)+' '+p.u+' × '+p.r+(p.rMax>p.r?'–'+p.rMax:'') : p.r+' reps'; }
 
+// ============================================================
+//  REFUERZO DE HOY: series extra para el músculo que va atrasado
+//  (usa ejercicios que ya tienes, alternándolos, y con límites para no sobrecargar)
+// ============================================================
+// Mínimo semanal de series directas por músculo (bíceps y tríceps tienen mucho trabajo indirecto)
+const MUSCLE_MIN={'Pecho':10,'Espalda':10,'Hombro':8,'Hombro post.':6,'Trapecio':4,'Bíceps':6,'Tríceps':6,'Cuádriceps':8,'Isquios':8,'Glúteo':8,'Gemelos':6,'Core':6};
+const EXTRA_DAY_CAP=30;      // si hoy ya llevas más de 30 series, no se agrega nada
+function dayMuscles(di){ return new Set(DAYS[di].exercises.map(e=>MUSCLE_OF[e.name])); }
+function muscleTrainedSince(m,fromDate){ return Object.keys(logs).some(n=>MUSCLE_OF[n]===m&&Object.keys(logs[n]).some(d=>d>=fromDate&&Object.keys(logs[n][d]).length)); }
+function computeExtra(di){
+  if(!cfg.extraAdvice) return null;
+  const t=todayStr();
+  if(recoveryCheck().pts>=2) return {blocked:'tired'};                 // cansado: nada extra
+  const all=getAllSessions();
+  const todaySets=all.filter(s=>s.date===t).reduce((a,s)=>a+s.sets,0);
+  if(todaySets>EXTRA_DAY_CAP) return {blocked:'cap'};
+  const sm=setsByMuscle(all,addDays(t,-13),t);                         // promedio de 2 semanas
+  const firstDate=all.length?all[all.length-1].date:t;
+  if(daysBetween(firstDate,t)<14) return null;                          // hace falta historial
+  const exclude=new Set([...dayMuscles(di),...dayMuscles((di+1)%4)]);   // lo de hoy y lo de mañana en la rotación
+  let best=null;
+  Object.keys(MUSCLE_MIN).forEach(m=>{
+    if(exclude.has(m)) return;
+    if(muscleTrainedSince(m,addDays(t,-2))) return;                     // 48 h de recuperación
+    const perWeek=(sm[m]||0)/2, min=MUSCLE_MIN[m], deficit=min-perWeek;
+    if(deficit<2) return;
+    const score=deficit/min;
+    if(!best||score>best.score) best={m,perWeek,min,deficit,score};
+  });
+  if(!best) return null;
+  // alterna: el ejercicio de ese músculo que hace más tiempo no haces
+  const opts=Object.keys(EXDEF).filter(n=>MUSCLE_OF[n]===best.m&&(!EXDEF[n].variant||variantAllowed(EXDEF[n]))).map(n=>({name:n,di:EXDEF[n].di,ei:EXDEF[n].ei}));
+  opts.forEach(o=>{ const ds=Object.keys(logs[o.name]||{}).sort(); o.last=ds.length?ds[ds.length-1]:''; });
+  opts.sort((a,b)=>a.last<b.last?-1:a.last>b.last?1:0);
+  const pick=opts[0];
+  return {m:best.m,perWeek:Math.round(best.perWeek*10)/10,min:best.min,name:pick.name,di:pick.di,ei:pick.ei,sets:best.deficit>=4?3:2,forDay:di,status:'sugerido',done:[]};
+}
+function todayExtra(){
+  const t=todayStr();
+  if(extras[t]) return extras[t];                       // ya decidiste hoy (agregado o descartado)
+  if(_extraCache&&_extraCache.k===t+'|'+currentDay) return _extraCache.v;
+  const x=computeExtra(currentDay);                      // se recalcula según el día que tienes abierto
+  _extraCache={k:t+'|'+currentDay,v:x};
+  return x;
+}
+function extraHTML(){
+  const x=todayExtra();
+  if(!x||x.blocked||x.status==='descartado') return '';
+  if(dayMuscles(currentDay).has(x.m)) return '';
+  const c=DAYS[x.di].color, p=exercisePlan(x.name);
+  const what=x.sets+' series de <strong>'+esc(x.name)+'</strong>'+(p?(p.w>0?' · '+fmtW(p.w)+' '+p.u+' × '+p.r:' · '+p.r+' reps'):'');
+  if(x.status==='sugerido'){
+    return '<div class="extra" style="--pc:'+c+'"><div class="ex-lbl">&#10133; Refuerzo de hoy · '+x.m+'</div><div class="ex-txt">'+x.m+' va atrasado: <strong>'+String(x.perWeek).replace('.',',')+' series/semana</strong> en las últimas 2 semanas (mínimo '+x.min+'). Al final de tu entreno agrega '+what+'.</div><div class="ex-btns"><button class="ex-add" onclick="extraAccept()">Agregar</button><button class="ex-no" onclick="extraDismiss()">Hoy no</button></div></div>';
+  }
+  const done=x.done.filter(Boolean).length;
+  let btns=''; for(let si=0;si<x.sets;si++){ const d=!!x.done[si]; btns+='<button class="set-btn'+(d?' done-set':'')+'" style="width:56px;height:56px;font-size:26px;'+(d?'background:'+c+';color:'+((x.di===0||x.di===2)?'#0a0a0a':'#fff'):'')+'" onclick="openExtraLog('+si+')">'+(si+1)+'</button>'; }
+  return '<div class="extra" style="--pc:'+c+'"><div class="ex-lbl">&#10133; Refuerzo · '+x.m+(done>=x.sets?' · ✓ hecho':'')+'</div><div class="ex-txt">'+what+'</div><div class="focus-sets-row" style="margin-top:10px">'+btns+'</div></div>';
+}
+function extraAccept(){ const x=todayExtra(); if(!x||x.blocked) return; extras[todayStr()]=x; x.status='agregado'; saveState(); _animateReveal=false; buildFocusView(); }
+function extraDismiss(){ const x=todayExtra(); if(!x||x.blocked) return; extras[todayStr()]=x; x.status='descartado'; saveState(); _animateReveal=false; buildFocusView(); }
+function openExtraLog(si){
+  const x=extras[todayStr()]; if(!x) return;
+  openLogModal(x.di,x.ei,si,!!x.done[si],x.name);
+  logTarget.extra=true;
+  document.getElementById('logSetLabel').textContent='REFUERZO · SERIE '+(si+1)+' DE '+x.sets;
+}
+function extraSetDone(si,done){
+  const x=extras[todayStr()]; if(!x) return;
+  x.done[si]=done; saveState(); _animateReveal=false; buildFocusView();
+  if(done&&cfg.auto&&x.done.filter(Boolean).length<x.sets){ timerHintOverride='Refuerzo: serie '+x.done.filter(Boolean).length+' de '+x.sets; timerNameOverride=x.name; startTimer('series',x.di,x.ei); }
+}
+let timerHintOverride=null, timerHint=null, timerNameOverride=null, timerName=null;
+let _extraCache=null;
+
+// ============================================================
+//  VARIAR POR BLOQUES: cuando un ejercicio se estanca o lleva mucho tiempo igual,
+//  se propone una variante por 6 sesiones. El original no se borra y regresa al terminar.
+// ============================================================
+const BLOCK_LEN=6;
+function blockSessions(r){ return Object.keys(logs[r.v]||{}).filter(d=>d>=r.start).length; }
+function slotLoggedToday(di,ei){ const t=todayStr(); return slotNames(di,ei).some(n=>logs[n]&&logs[n][t]&&Object.keys(logs[n][t]).length); }
+function slotPartial(di,ei){ const a=state[di][ei]; return a.some(Boolean)&&a.some(x=>!x); }
+// "en uso": ya hay series de esta vuelta (marcas) o registros de hoy -> no se cambia el ejercicio a media sesión
+function slotDoneToday(di,ei){ return state[di][ei].some(Boolean)||slotLoggedToday(di,ei); }
+function rotationOffer(di){
+  const t=todayStr();
+  if(rotNext._day===t) return null;                                              // máximo una propuesta por día
+  if(Object.keys(rotations).filter(k=>k.split('-')[0]===String(di)).length>=2) return null; // máximo 2 variantes activas por día
+  let best=null;
+  DAYS[di].exercises.forEach((e,ei)=>{
+    const key=di+'-'+ei;
+    if(rotations[key]||(rotNext[key]&&t<rotNext[key])||slotDoneToday(di,ei)) return;
+    const vs=variantsFor(e.name); if(!vs.length) return;
+    const ser=sameKind(exerciseSeries(e.name)); if(ser.length<6) return;
+    const st=exerciseStatus(ser);
+    const since=rotNext[key+'|fin']||ser[0].date;
+    const weeks=Math.floor(daysBetween(since,t)/7);
+    const comp=/Compuesto/.test(e.badge);
+    let reason=null, prio=0;
+    if(st.k==='stuck'){ reason='Llevas <strong>'+st.since+' sesiones sin récord</strong> en este ejercicio.'; prio=10+st.since; }
+    else if(weeks>=(comp?12:8)){ reason='Llevas <strong>'+weeks+' semanas</strong> con este ejercicio sin cambiarlo.'; prio=weeks/10; }
+    if(!reason) return;
+    const v=vs.slice().sort((a,b)=>{ const la=lastDate(a.name), lb=lastDate(b.name); return la<lb?-1:la>lb?1:0; })[0]; // la que hace más tiempo no haces
+    if(!best||prio>best.prio) best={di,ei,key,orig:e.name,v:v.name,reason,prio};
+  });
+  return best;
+}
+let _rotCache=null;
+function todayRotationOffer(di){ const k=todayStr()+'|'+di+'|'+JSON.stringify(rotNext)+'|'+Object.keys(rotations).length; if(_rotCache&&_rotCache.k===k) return _rotCache.v; const v=rotationOffer(di); _rotCache={k,v}; return v; }
+function rotationHTML(di,ei){
+  const key=di+'-'+ei, r=rotations[key], c=DAYS[di].color;
+  const qk=key.replace(/'/g,'');
+  if(r){
+    const n=blockSessions(r), doneToday=slotLoggedToday(di,ei);
+    if(n>=r.len&&!slotPartial(di,ei)){
+      const ser=sameKind(exerciseSeries(r.v)).filter(s=>s.date>=r.start);
+      let prog='';
+      if(ser.length>=2){ const m=metricOf(ser), a=ser[0][m], b=ser[ser.length-1][m]; const pc=a>0?Math.round((b/a-1)*100):0; prog=' En el bloque '+(pc>0?'subiste <strong>'+pc+'%</strong>':pc<0?'bajaste '+(-pc)+'%':'te mantuviste')+(m==='e1rm'?' de 1RM estimado':' en reps')+'.'; }
+      return '<div class="rot" style="--pc:'+c+'"><div class="rot-lbl">&#127937; Bloque terminado</div><div class="rot-txt">Completaste '+r.len+' sesiones de <strong>'+esc(r.v)+'</strong>.'+prog+' ¿Regresas a '+esc(r.orig)+' o sigues con la variante?</div><div class="ex-btns"><button class="ex-add" onclick="endRotation(\''+qk+'\',false)">Regresar al original</button><button class="ex-no" onclick="endRotation(\''+qk+'\',true)">Seguir '+r.len+' sesiones más</button></div></div>';
+    }
+    const k=Math.min(r.len,n+(doneToday?0:1));
+    return '<div class="rot rot-chip" style="--pc:'+c+'"><span>&#128260; Variante de <strong>'+esc(r.orig)+'</strong> · sesión '+k+' de '+r.len+'</span><button class="rot-link" onclick="endRotation(\''+qk+'\',false,true)">Volver al original</button></div>';
+  }
+  const o=todayRotationOffer(di);
+  if(!o||o.ei!==ei) return '';
+  const v=EXDEF[o.v];
+  return '<div class="rot" style="--pc:'+c+'"><div class="rot-lbl">&#128260; ¿Variar este ejercicio?</div><div class="rot-txt">'+o.reason+' Te propongo <strong>'+esc(o.v)+'</strong> durante '+BLOCK_LEN+' sesiones. Tu ejercicio no se borra: regresa al terminar el bloque.</div><div class="rot-tip">'+v.detail+' · '+v.tip+'</div><div class="ex-btns"><button class="ex-add" onclick="acceptRotation(\''+o.key+'\')">Cambiar por '+BLOCK_LEN+' sesiones</button><button class="ex-no" onclick="declineRotation(\''+o.key+'\')">Seguir con este</button></div></div>';
+}
+function acceptRotation(key){
+  const di=+key.split('-')[0], o=rotationOffer(di); if(!o||o.key!==key) return;
+  rotations[key]={v:o.v,orig:o.orig,start:todayStr(),len:BLOCK_LEN};
+  rotNext._day=todayStr(); saveState(); _animateReveal=true; buildFocusView();
+}
+function declineRotation(key){ const t=todayStr(); rotNext[key]=addDays(t,28); rotNext._day=t; saveState(); _animateReveal=false; buildFocusView(); }
+function endRotation(key,keep,early){
+  const r=rotations[key]; if(!r) return; const t=todayStr();
+  const [di,ei]=key.split('-').map(Number);
+  if(early&&!confirm('¿Volver a '+r.orig+' antes de terminar el bloque? El historial de la variante se conserva.')) return;
+  if(slotPartial(di,ei)&&!keep){ alert('Hoy ya registraste series de este ejercicio. Cambia de regreso en tu próxima sesión.'); return; }
+  if(keep){ r.start=slotLoggedToday(di,ei)?addDays(t,1):t; }
+  else { delete rotations[key]; rotNext[key+'|fin']=t; rotNext[key]=addDays(t,28); }
+  saveState(); _animateReveal=true; buildFocusView();
+}
+
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
 let timerDeadline=0; // timestamp absoluto de cuando termina
 
 function startTimer(mode,dayIdx,exIdx){
   clearInterval(timerInterval);
+  timerHint=timerHintOverride; timerHintOverride=null; timerName=timerNameOverride; timerNameOverride=null;
   timerMode=mode;timerDayIdx=dayIdx;timerExIdx=exIdx;
   timerRemaining=mode==='series'?cfg.seriesSec:cfg.exerciseSec;
   timerTotal=timerRemaining;timerPaused=false;
@@ -1909,13 +2191,13 @@ function updateTimerUI(){
   document.getElementById('floatRing').style.strokeDashoffset=FCIRC*(1-pct);
   document.getElementById('floatRing').style.stroke=color;
   document.getElementById('timerTypeLabel').textContent=timerMode==='exercise'?'DESCANSO ENTRE EJERCICIOS':'DESCANSO ENTRE SERIES';
-  const exName=DAYS[timerDayIdx].exercises[timerExIdx].name;
+  const exName=timerName||activeName(timerDayIdx,timerExIdx);
   document.getElementById('timerExName').textContent=exName;
   const nextIdx=timerExIdx+1;
   if(timerMode==='exercise'&&nextIdx<DAYS[timerDayIdx].exercises.length){
-    document.getElementById('timerNextHint').innerHTML='Siguiente: <strong>'+DAYS[timerDayIdx].exercises[nextIdx].name+'</strong>';
+    document.getElementById('timerNextHint').innerHTML='Siguiente: <strong>'+activeName(timerDayIdx,nextIdx)+'</strong>';
   } else if(timerMode==='series'){
-    document.getElementById('timerNextHint').innerHTML='Serie '+state[timerDayIdx][timerExIdx].filter(Boolean).length+' de 4 completada';
+    document.getElementById('timerNextHint').innerHTML=timerHint||('Serie '+state[timerDayIdx][timerExIdx].filter(Boolean).length+' de 4 completada');
   } else {
     document.getElementById('timerNextHint').innerHTML='';
   }
@@ -2101,6 +2383,7 @@ function toggleCfg(key){
   el.classList.toggle('on',cfg[key]);
   saveState();
   if(key==='restAdvice'&&!cfg.restAdvice){ refreshRestBanner(); }
+  if(key==='extraAdvice'||key==='vest'){ _extraCache=null; _animateReveal=false; buildFocusView(); }
 }
 function openConfig(){updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
 function closeConfig(){document.getElementById('configModal').classList.remove('active');}
@@ -2335,11 +2618,14 @@ function buildFocusView() {
     mwuBtnWrap.innerHTML = `<button class="warmup-btn" style="background:${color};color:${isDark?'var(--bg)':'white'}" onclick="startWarmup(${di})">&#128293; Calentar Día ${di+1}</button>`;
   }
 
+  const xw=document.getElementById('extraWrap'); if(xw){ try{ xw.innerHTML=extraHTML(); }catch(e){ xw.innerHTML=''; } }
+
   // Sidebar exercise list
   const sidebar = document.getElementById('exSidebar');
   if(sidebar){
     sidebar.innerHTML = '';
-    day.exercises.forEach((ex, ei) => {
+    day.exercises.forEach((_ex, ei) => {
+      const ex = activeEx(di, ei);
       const done = state[di][ei].every(Boolean);
       const isCurrent = ei === currentEx;
       const item = document.createElement('div');
@@ -2380,7 +2666,7 @@ function buildFocusView() {
   }
 
   // Focus card
-  const ex = day.exercises[currentEx];
+  const ex = activeEx(di, currentEx);
   const ei = currentEx;
   const allDone = state[di][ei].every(Boolean);
   const _today = todayStr();
@@ -2403,7 +2689,7 @@ function buildFocusView() {
       nextName = 'Te ' + (pendientes===1?'falta':'faltan') + ' ' + pendientes + ' serie' + (pendientes===1?'':'s') + ' de este ejercicio';
     } else if(!isLast){
       nextLabel = 'SIGUIENTE';
-      nextName = String(ei+2).padStart(2,'0') + ' · ' + day.exercises[ei+1].name;
+      nextName = String(ei+2).padStart(2,'0') + ' · ' + activeName(di, ei+1);
     } else {
       nextLabel = 'SIGUIENTE';
       nextName = '¡Último ejercicio del día!';
@@ -2424,6 +2710,7 @@ function buildFocusView() {
         <div class="ex-check" style="${allDone?'background:'+color+';border-color:'+color:'border-color:'+color+'44'}">${allDone?'✓':''}</div>
       </div>
       <div class="focus-sets-area">
+        ${rotationHTML(di,ei)}
         ${allDone?'':planHTML(ex.name,color)}
         <div class="sets-label">SERIES</div>
         <div class="focus-sets-row">${setsHTML}</div>
