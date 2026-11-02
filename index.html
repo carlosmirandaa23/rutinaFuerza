@@ -544,6 +544,20 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .rot-chip{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;font-size:13px;color:#bbb;border-style:solid;}
 .rot-chip strong{color:#fff;}
 .rot-link{background:transparent;border:none;color:#999;text-decoration:underline;text-underline-offset:3px;font-family:'DM Sans',sans-serif;font-size:12px;cursor:pointer;padding:4px 0;}
+
+/* ===== MIS MANCUERNAS ===== */
+.db-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px;}
+.db-chip{position:relative;padding:12px 4px;border-radius:12px;border:1px solid var(--border);background:#1a1a1a;color:#bbb;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:.5px;cursor:pointer;}
+.db-chip.on{background:var(--accent1);color:var(--bg);border-color:var(--accent1);}
+.db-chip i{position:absolute;top:5px;right:6px;width:6px;height:6px;border-radius:50%;background:#7CFC6B;}
+.db-chip.on i{background:#2a5a10;}
+.db-add{display:flex;gap:8px;margin-top:14px;}
+.db-add input{flex:1;min-width:0;background:#0d0d0d;border:1px solid var(--border);border-radius:12px;color:#fff;padding:10px 12px;font-family:'DM Sans',sans-serif;font-size:15px;}
+.db-summary{font-size:13px;color:#aaa;margin-top:12px;line-height:1.5;}
+.db-summary strong{color:#fff;}
+
+/* Ajustes: el panel se desplaza si no cabe en pantalla */
+#configModal .modal-sheet{max-width:620px;margin:0 auto;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:32px;}
 </style>
 </head>
 <body>
@@ -725,6 +739,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
       </div>
     </div>
     <div class="cfg-row">
+      <div><div class="cfg-label">Mis mancuernas</div><div class="cfg-desc" id="cfgDbDesc">Automático: según los pesos de tu historial</div></div>
+      <button class="bx-btn" onclick="openDbModal()">Editar</button>
+    </div>
+    <div class="cfg-row">
       <div><div class="cfg-label">Descanso entre series</div><div class="cfg-desc">Tiempo despues de cada serie</div></div>
       <div class="cfg-control">
         <button class="cfg-arrow" onclick="adjCfg('series',-5)">-</button>
@@ -812,6 +830,27 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
   <div class="bx-body" id="bxBody"></div>
 </div>
 <div class="bx-tip" id="bxTip"></div>
+
+<!-- MIS MANCUERNAS -->
+<div class="modal-overlay" id="dbModal" onclick="dbModalOutside(event)" style="z-index:2100">
+  <div class="modal-sheet" style="max-width:620px;margin:0 auto;max-height:92vh;overflow-y:auto">
+    <div class="modal-handle"></div>
+    <div class="modal-title" style="margin-bottom:6px">Mis mancuernas</div>
+    <div class="cfg-desc" style="font-size:13px;line-height:1.5;margin-bottom:14px">Marca los pesos que tienes, por mancuerna. El plan de hoy solo te va a proponer estos y el botón + / − del registro salta entre ellos. El punto verde indica que ya usaste ese peso.</div>
+    <div class="unit-seg" style="margin-bottom:14px">
+      <button class="unit-opt" id="dbUnitLb" onclick="dbSetUnit('lb')">lb</button>
+      <button class="unit-opt" id="dbUnitKg" onclick="dbSetUnit('kg')">kg</button>
+    </div>
+    <div class="db-grid" id="dbGrid"></div>
+    <div class="db-add"><input id="dbCustom" type="number" inputmode="decimal" step="0.5" min="0" placeholder="Otro peso"><button class="bx-btn" onclick="dbAddCustom()">Agregar</button></div>
+    <div class="db-summary" id="dbSummary"></div>
+    <button class="modal-close" onclick="dbSave()">Guardar</button>
+    <div class="log-secondary">
+      <button class="log-link" onclick="dbDetect()">Detectar de mi historial</button>
+      <button class="log-link" onclick="dbClear()">Usar modo automático</button>
+    </div>
+  </div>
+</div>
 
 <!-- LOG MODAL (peso + reps por serie) -->
 <div class="modal-overlay" id="logModal" onclick="logModalOutside(event)">
@@ -1145,6 +1184,8 @@ function setLogUnit(u){
 }
 function stepWeight(dir){
   const inp=document.getElementById('logWeight');
+  const list=myDbIn(logUnit);
+  if(list){ const v=readNum(inp,0); const nx=dir>0?list.find(w=>w>v+0.01):list.slice().reverse().find(w=>w<v-0.01); if(nx!=null){ inp.value=fmtW(nx); return; } if(dir<0&&v<=list[0]){ inp.value='0'; return; } }
   const step=(logUnit==='lb')?5:2.5;
   let v=readNum(inp,0)+dir*step; if(v<0)v=0;
   inp.value=fmtW(v);
@@ -1461,7 +1502,7 @@ function exerciseSeries(name){
 function metricOf(series){ return (series.length&&series[series.length-1].e1rm>0)? 'e1rm':'reps'; }
 function sameKind(series){ const m=metricOf(series); return series.filter(s=>m==='e1rm'?s.e1rm>0:!(s.e1rm>0)); }
 // Mancuerna más pesada que has usado (el puente de glúteo no cuenta: ahí se apilan pesos)
-function dumbbellMaxKg(){ let mx=0; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e){ const k=toKg(e.w||0,e.u); if(k>mx) mx=k; } })); }); return mx; }
+function dumbbellMaxKg(){ if(hasMyDb()){ return Math.max(...cfg.myDb.w.map(w=>toKg(w,cfg.myDb.unit))); } let mx=0; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e){ const k=toKg(e.w||0,e.u); if(k>mx) mx=k; } })); }); return mx; }
 function exerciseStatus(series){
   series=sameKind(series);
   if(!series.length) return {k:'none',label:'Sin datos'};
@@ -1894,6 +1935,7 @@ function setDbCount(name,n){ cfg.dbCount=cfg.dbCount||{}; cfg.dbCount[name]=n; s
 
 // Pesos que tienes: los que has usado en cualquier ejercicio, en esa unidad
 function ownedWeights(u,name){
+  const m=myDbIn(u); if(m) return m;
   const set=new Set();
   Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)&&n!==name) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0&&(e.u||'kg')===u) set.add(e.w); })); });
   return [...set].sort((a,b)=>a-b);
@@ -1904,8 +1946,10 @@ function exercisePlan(name){
   const t=todayStr();
   const ser=sameKind(exerciseSeries(name).filter(s=>s.date<t));
   if(!ser.length) return firstTimePlan(name);
-  const last=ser[ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
-  const lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0, lastR=last.top.r;
+  const last=ser[ser.length-1], u=hasMyDb()?cfg.myDb.unit:((last.sets[0]&&last.sets[0].u)||cfg.unit);
+  const myList=myDbIn(u);
+  let lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0; const lastR=last.top.r;
+  if(myList) lastW=snapTo(myList,round1(fromKg(last.top.kg,u)));
   const st=exerciseStatus(ser);
   const rc=(typeof recoveryCheck==='function')?recoveryCheck():{pts:0,reasons:[]};
   const tired=rc.pts>=2;
@@ -1925,8 +1969,13 @@ function exercisePlan(name){
   let gain=0.02;
   if(avgRir!=null){ if(avgRir>=3) gain=0.04; else if(avgRir<=0.5) gain=0.01; }
   if(tired) gain=0;
-  const lastE1=fromKg(last.e1rm,u), target=lastE1*(1+gain);
-  const owned=ownedWeights(u,name); if(owned.indexOf(lastW)<0) owned.push(lastW); owned.sort((a,b)=>a-b);
+  // si el peso se ajustó a tu mancuerna real (p. ej. 7 kg -> 15 lb), el 1RM se escala igual
+  const rawTop=fromKg(last.top.kg,u), scale=(rawTop>0&&lastW>0)?lastW/rawTop:1;
+  const lastE1=fromKg(last.e1rm,u)*scale, target=lastE1*(1+gain);
+  let owned=ownedWeights(u,name);
+  // peso apilado (p. ej. puente de glúteo con varias mancuernas): usa tu historial de ese ejercicio
+  if(myList&&lastW>myList[myList.length-1]*1.05){ owned=[...new Set(Object.values(logs[name]||{}).flatMap(d=>Object.values(d).filter(e=>e&&e.w>0).map(e=>round1(convertW(e.w,e.u||'kg',u)))))]; }
+  owned=owned.slice(); if(owned.indexOf(lastW)<0) owned.push(lastW); owned.sort((a,b)=>a-b);
   const maxOwned=owned[owned.length-1];
   // reps necesarias con el mismo peso: al menos 1 más que la vez pasada, máximo 3 más
   const rSame=gain>0? Math.min(lastR+3, Math.max(lastR+1, repsFor(target,lastW))) : lastR;
@@ -1937,13 +1986,16 @@ function exercisePlan(name){
   // compuestos aguantan saltos a 6 reps; en aislamiento (curls, elevaciones) no menos de 8 por las articulaciones
   const exDef=EXDEF[name];
   const minJump=(exDef&&/Compuesto/.test(exDef.badge))?6:8;
+  // el salto más chico que te deja entre minJump y 12 reps
+  const cand=heavier.map(w=>({w,r:repsFor(target,w)})).filter(c=>c.r>=minJump&&c.r<=12);
+  const jump=cand[0];
   let mode;
   if(tired){ mode='hold'; plan.w=lastW; plan.r=lastR; }
   else if(rSame<=12){ mode='reps'; plan.w=lastW; plan.r=rSame; }
-  else if(next&&rNext>=minJump&&rNext<=10){ mode='jump'; plan.w=next; plan.r=rNext; }
+  else if(jump){ mode='jump'; plan.w=jump.w; plan.r=jump.r; }
   else if(next){ mode='reps'; plan.w=lastW; plan.r=rSame; plan.notes.push('El siguiente peso que tienes ('+fmtW(next)+' '+u+') es un salto grande para este ejercicio: sigue sumando reps aquí y, cuando hagas 4 series de 15 o más, intenta '+fmtW(next)+' × '+minJump+'.'); }
   else { mode=rSame>15?'ceiling':'reps'; plan.w=lastW; plan.r=rSame; }
-  plan.rMax=plan.r+(mode==='jump'?2:mode==='hold'?0:1);
+  plan.rMax=mode==='jump'?Math.max(plan.r,Math.min(plan.r+2,12)):plan.r+(mode==='hold'?0:1);
   plan.mode=mode;
 
   if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
@@ -1957,7 +2009,7 @@ function exercisePlan(name){
 
   // Alternativa
   if(mode==='jump') plan.alt={w:lastW,r:lastR+1,txt:'Si hoy no te sientes fuerte: '+fmtW(lastW)+' × '+(lastR+1)+'.'};
-  else if(mode==='reps'&&next&&rNext>=minJump&&rNext<=10) plan.alt={w:next,r:rNext,txt:'Si te sientes muy bien: '+fmtW(next)+' × '+rNext+'.'};
+  else if(mode==='reps'&&cand.length&&cand[0].r<=10) plan.alt={w:cand[0].w,r:cand[0].r,txt:'Si te sientes muy bien: '+fmtW(cand[0].w)+' × '+cand[0].r+'.'};
 
   // Serie de aproximación para compuestos (≈55% del peso de trabajo)
   const ex=EXDEF[name];
@@ -1970,7 +2022,7 @@ function firstTimePlan(name){
   if(d.bw) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair:false,notes:[],why:'Primera vez: '+(d.vest?'pon el chaleco y ':'')+'busca 10–12 reps con técnica perfecta. Si es un ejercicio de aguantar, anota los segundos como reps.'};
   const orig=d.alt.map(n=>({n,ser:sameKind(exerciseSeries(n))})).find(o=>o.ser.length&&o.ser[o.ser.length-1].e1rm>0);
   if(!orig) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair,notes:[],why:'Primera vez: escoge un peso con el que llegues a 10–12 reps con buena técnica.'};
-  const last=orig.ser[orig.ser.length-1], u=(last.sets[0]&&last.sets[0].u)||cfg.unit;
+  const last=orig.ser[orig.ser.length-1], u=hasMyDb()?cfg.myDb.unit:((last.sets[0]&&last.sets[0].u)||cfg.unit);
   const goal=fromKg(last.top.kg,u)*(d.start||0.7);
   const owned=ownedWeights(u,name);
   const below=owned.filter(w=>w<=goal+0.01);
@@ -2136,6 +2188,69 @@ function endRotation(key,keep,early){
   if(keep){ r.start=slotLoggedToday(di,ei)?addDays(t,1):t; }
   else { delete rotations[key]; rotNext[key+'|fin']=t; rotNext[key]=addDays(t,28); }
   saveState(); _animateReveal=true; buildFocusView();
+}
+
+// ============================================================
+//  MIS MANCUERNAS: la lista de pesos que tienes (por mancuerna).
+//  Si está vacía, la app los deduce de tu historial como antes.
+// ============================================================
+const DB_PRESETS={
+  lb:[2.5,5,8,10,12,15,17.5,20,22.5,25,27.5,30,32.5,35,40,45,50,55,60,65,70,75,80,85,90,95,100],
+  kg:[1,1.5,2,2.5,3,4,4.5,5,5.5,6,7,7.5,8,9,9.5,10,12,12.5,14,15,16,17.5,18,20,22.5,24,25,27.5,30,32.5,35,37.5,40]
+};
+function round1(x){ return Math.round(x*10)/10; }
+function hasMyDb(){ return !!(cfg.myDb&&Array.isArray(cfg.myDb.w)&&cfg.myDb.w.length); }
+function myDbIn(u){
+  if(!hasMyDb()) return null;
+  const src=cfg.myDb.unit;
+  return cfg.myDb.w.map(w=>src===u?w:round1(convertW(w,src,u))).sort((a,b)=>a-b);
+}
+function snapTo(list,w){ if(!list||!list.length) return w; const n=list.reduce((b,x)=>Math.abs(x-w)<Math.abs(b-w)?x:b,list[0]); return Math.abs(n-w)<=Math.max(0.6,w*0.06)?n:w; }
+// Pesos encontrados en tu historial, llevados a la unidad u (sin el puente de glúteo, donde se apila peso)
+function detectDumbbells(u){
+  const set=new Set(), presets=DB_PRESETS[u];
+  Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0){ const w=(e.u||'kg')===u?e.w:round1(convertW(e.w,e.u||'kg',u)); set.add(snapTo(presets,w)); } })); });
+  return [...set].sort((a,b)=>a-b);
+}
+let dbEdit=null;
+function openDbModal(){
+  const u=hasMyDb()?cfg.myDb.unit:(cfg.unit||'lb');
+  dbEdit={unit:u,sel:new Set(hasMyDb()?cfg.myDb.w:detectDumbbells(u)),auto:!hasMyDb()};
+  renderDbModal();
+  document.getElementById('dbModal').classList.add('active');
+}
+function closeDbModal(){ document.getElementById('dbModal').classList.remove('active'); dbEdit=null; }
+function dbModalOutside(e){ if(e.target===document.getElementById('dbModal')) closeDbModal(); }
+function renderDbModal(){
+  const u=dbEdit.unit, used=new Set(detectDumbbells(u));
+  const all=[...new Set(DB_PRESETS[u].concat([...dbEdit.sel]))].sort((a,b)=>a-b);
+  document.getElementById('dbUnitLb').classList.toggle('active',u==='lb');
+  document.getElementById('dbUnitKg').classList.toggle('active',u==='kg');
+  document.getElementById('dbGrid').innerHTML=all.map(w=>'<button class="db-chip'+(dbEdit.sel.has(w)?' on':'')+'" onclick="dbToggle('+w+')">'+fmtW(w)+(used.has(w)?'<i title="Ya la usaste"></i>':'')+'</button>').join('');
+  const sel=[...dbEdit.sel].sort((a,b)=>a-b);
+  document.getElementById('dbSummary').innerHTML=sel.length?('<strong>'+sel.length+' pesos</strong> · de '+fmtW(sel[0])+' a '+fmtW(sel[sel.length-1])+' '+u+(dbEdit.auto?' · <span style="color:#ffbe3c">detectados de tu historial, revísalos</span>':'')):'Ninguno marcado: la app usará tu historial.';
+}
+function dbToggle(w){ if(dbEdit.sel.has(w)) dbEdit.sel.delete(w); else dbEdit.sel.add(w); dbEdit.auto=false; renderDbModal(); }
+function dbSetUnit(u){
+  if(u===dbEdit.unit) return;
+  const conv=[...dbEdit.sel].map(w=>snapTo(DB_PRESETS[u],round1(convertW(w,dbEdit.unit,u))));
+  dbEdit.unit=u; dbEdit.sel=new Set(conv); renderDbModal();
+}
+function dbAddCustom(){
+  const inp=document.getElementById('dbCustom'); const w=parseFloat(String(inp.value).replace(',','.'));
+  if(!(w>0)) return; dbEdit.sel.add(round1(w)); inp.value=''; dbEdit.auto=false; renderDbModal();
+}
+function dbDetect(){ dbEdit.sel=new Set(detectDumbbells(dbEdit.unit)); dbEdit.auto=true; renderDbModal(); }
+function dbSave(){
+  const w=[...dbEdit.sel].sort((a,b)=>a-b);
+  cfg.myDb=w.length?{unit:dbEdit.unit,w}:null;
+  saveState(); closeDbModal(); updateDbDesc(); _extraCache=null; _animateReveal=false; buildFocusView();
+}
+function dbClear(){ cfg.myDb=null; saveState(); closeDbModal(); updateDbDesc(); _animateReveal=false; buildFocusView(); }
+function updateDbDesc(){
+  const el=document.getElementById('cfgDbDesc'); if(!el) return;
+  if(hasMyDb()){ const w=cfg.myDb.w; el.textContent=w.length+' pesos · de '+fmtW(w[0])+' a '+fmtW(w[w.length-1])+' '+cfg.myDb.unit; }
+  else el.textContent='Automático: según los pesos de tu historial';
 }
 
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
@@ -2385,7 +2500,7 @@ function toggleCfg(key){
   if(key==='restAdvice'&&!cfg.restAdvice){ refreshRestBanner(); }
   if(key==='extraAdvice'||key==='vest'){ _extraCache=null; _animateReveal=false; buildFocusView(); }
 }
-function openConfig(){updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
+function openConfig(){updateDbDesc();updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
 function closeConfig(){document.getElementById('configModal').classList.remove('active');}
 function closeConfigOutside(e){if(e.target===document.getElementById('configModal'))closeConfig();}
 
