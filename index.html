@@ -558,6 +558,8 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 
 /* Ajustes: el panel se desplaza si no cabe en pantalla */
 #configModal .modal-sheet{max-width:620px;margin:0 auto;max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;padding-bottom:32px;}
+
+.w-hint{font-size:12px;color:#888;line-height:1.4;min-height:16px;}
 </style>
 </head>
 <body>
@@ -864,9 +866,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
         <div class="log-field-label" id="logWeightLabel">Peso</div>
         <div class="stepper">
           <button class="step-btn" onclick="stepWeight(-1)" aria-label="Bajar peso">&#8722;</button>
-          <input class="step-input" id="logWeight" type="number" inputmode="decimal" min="0" step="0.5" value="0">
+          <input class="step-input" id="logWeight" type="number" inputmode="decimal" min="0" step="0.5" value="0" oninput="updateWeightHint()">
           <button class="step-btn" onclick="stepWeight(1)" aria-label="Subir peso">+</button>
         </div>
+        <div class="w-hint" id="logWeightHint"></div>
         <div class="unit-seg">
           <button class="unit-opt" id="logUnitKg" onclick="setLogUnit('kg')">kg</button>
           <button class="unit-opt" id="logUnitLb" onclick="setLogUnit('lb')">lb</button>
@@ -1149,7 +1152,7 @@ function openLogModal(di,ei,si,editing,nameOverride){
   document.getElementById('logSetLabel').textContent='SERIE '+(si+1)+' DE 4';
   document.getElementById('logWeight').value=fmtW(prefW);
   document.getElementById('logReps').value=prefR;
-  updateLogUnitToggle();
+  updateLogUnitToggle(); updateWeightHint();
 
   const hint=document.getElementById('logPrevHint');
   let hintHTML;
@@ -1180,15 +1183,55 @@ function setLogUnit(u){
   if(u===logUnit){ updateLogUnitToggle(); return; }
   const inp=document.getElementById('logWeight');
   inp.value=fmtW(roundHalf(convertW(readNum(inp,0),logUnit,u)));
-  logUnit=u; updateLogUnitToggle();
+  logUnit=u; updateLogUnitToggle(); updateWeightHint();
+}
+// Las flechas del peso saltan entre tus mancuernas (tabla o, si no la llenaste, las de tu historial).
+// Puedes escribir cualquier otro peso a mano. En ejercicios donde apilas peso (puente, hip thrust) se puede pasar del máximo.
+function stepList(u){ const m=myDbIn(u); if(m) return {list:m,src:'tabla'}; const d=(typeof detectDumbbells==='function')?detectDumbbells(u):[]; return d.length?{list:d,src:'historial'}:null; }
+function isStackable(name){ return /Puente|Hip Thrust/.test(name||''); }
+// Pesos que puedes armar apilando hasta 3 mancuernas (cada peso viene en par)
+function stackSums(L){
+  const items=[]; L.forEach(w=>{ items.push(w,w); });
+  const set=new Set();
+  for(let i=0;i<items.length;i++){ set.add(round1(items[i]));
+    for(let j=i+1;j<items.length;j++){ set.add(round1(items[i]+items[j]));
+      for(let k=j+1;k<items.length;k++) set.add(round1(items[i]+items[j]+items[k])); } }
+  return [...set].sort((a,b)=>a-b);
 }
 function stepWeight(dir){
   const inp=document.getElementById('logWeight');
-  const list=myDbIn(logUnit);
-  if(list){ const v=readNum(inp,0); const nx=dir>0?list.find(w=>w>v+0.01):list.slice().reverse().find(w=>w<v-0.01); if(nx!=null){ inp.value=fmtW(nx); return; } if(dir<0&&v<=list[0]){ inp.value='0'; return; } }
+  const v=readNum(inp,0), sl=stepList(logUnit), name=logTarget&&logTarget.name;
+  if(sl){
+    const max=sl.list[sl.list.length-1];
+    const L=isStackable(name)?sl.list.concat(stackSums(sl.list).filter(x=>x>max+0.01)):sl.list;
+    const above=v>L[L.length-1]+0.01;
+    if(!above){
+      if(dir>0){
+        const nx=L.find(w=>w>v+0.01);
+        if(nx!=null){ inp.value=fmtW(nx); updateWeightHint(); return; }
+        if(!isStackable(name)){ updateWeightHint('max'); return; }      // tope: no inventa pesos que no tienes
+      } else {
+        const pv=L.slice().reverse().find(w=>w<v-0.01);
+        inp.value=fmtW(pv!=null?pv:0); updateWeightHint(); return;
+      }
+    }
+  }
   const step=(logUnit==='lb')?5:2.5;
-  let v=readNum(inp,0)+dir*step; if(v<0)v=0;
-  inp.value=fmtW(v);
+  let nv=v+dir*step; if(nv<0)nv=0;
+  inp.value=fmtW(nv); updateWeightHint();
+}
+function updateWeightHint(flag){
+  const el=document.getElementById('logWeightHint'); if(!el) return;
+  const sl=stepList(logUnit), v=readNum(document.getElementById('logWeight'),0);
+  if(!sl){ el.textContent='Flechas de '+(logUnit==='lb'?'5 lb':'2.5 kg')+' en '+(logUnit==='lb'?'5 lb':'2.5 kg')+' · o escribe el peso'; return; }
+  const L=sl.list, max=L[L.length-1], inList=L.some(w=>Math.abs(w-v)<0.01);
+  const stack=isStackable(logTarget&&logTarget.name), inStack=stack&&v>max+0.01&&stackSums(L).some(w=>Math.abs(w-v)<0.01);
+  let t;
+  if(inStack){ el.textContent='Peso apilado con tus mancuernas · puedes escribir otro'; return; }
+  if(flag==='max'||(inList&&Math.abs(v-max)<0.01)) t='Es tu mancuerna más pesada';
+  else if(v>0&&!inList) t=(v>max&&isStackable(logTarget&&logTarget.name))?'Peso apilado':'Peso escrito a mano (no está en tus mancuernas)';
+  else t='Las flechas saltan entre tus mancuernas'+(sl.src==='historial'?' (según tu historial)':'');
+  el.textContent=t+' · puedes escribir otro';
 }
 function stepReps(dir){
   const inp=document.getElementById('logReps');
@@ -1562,6 +1605,7 @@ function useSuggested(w,u,r){
   if(u!==logUnit){ logUnit=u; updateLogUnitToggle(); }
   document.getElementById('logWeight').value=fmtW(w);
   if(r!=null) document.getElementById('logReps').value=r;
+  updateWeightHint();
 }
 let logRir=null;
 function setRir(x){ logRir=(logRir===x)?null:x; updateRirChips(); }
