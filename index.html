@@ -577,6 +577,16 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .ht-fold[open] summary::before{content:'▾ ';}
 .ht-fold .howto{margin-top:4px;padding-top:0;border-top:none;}
 .ht-fold .howto>.focus-tip-label{display:none;}
+
+/* ===== OPCIONES SEGÚN 1RM ===== */
+.opt-chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+.opt{display:inline-flex;align-items:center;gap:5px;background:#1c1c1c;border:1px solid var(--border);border-radius:100px;padding:5px 11px;font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;color:#ddd;font-variant-numeric:tabular-nums;}
+.opt.main{border-color:var(--pc,var(--accent1));color:#fff;}
+.opt em{font-style:normal;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--pc,var(--accent1));}
+.log-opts{margin-top:7px;padding-top:7px;border-top:1px solid var(--border);display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:#999;}
+.log-opts>span{width:100%;font-size:12px;}
+.log-opts .opt{cursor:pointer;}
+.log-opts .opt.main{--pc:var(--accent1);}
 </style>
 </head>
 <body>
@@ -1181,6 +1191,9 @@ function openLogModal(di,ei,si,editing,nameOverride){
     if(plan){
       hintHTML+='<div class="log-sug sug-up">&#127919; Plan de hoy: <strong>'+planText(plan)+'</strong>'+(plan.pair&&plan.w>0?' (por mancuerna)':'')+
         (plan.w>0?' <button class="sug-use" onclick="useSuggested('+plan.w+',\''+plan.u+'\','+plan.r+')">Usar</button>':'')+'</div>';
+      if(plan.next&&plan.next.ok){
+        hintHTML+='<div class="log-sug">&#11014; Para saltar: <strong>'+fmtW(plan.next.w)+' '+plan.u+' × '+plan.next.r+'</strong> <button class="sug-use" onclick="useSuggested('+plan.next.w+',\''+plan.u+'\','+plan.next.r+')">Usar</button></div>';
+      }
     }
   }
   hint.innerHTML=hintHTML;
@@ -2054,9 +2067,19 @@ function exercisePlan(name){
   if(tired){ mode='hold'; plan.w=lastW; plan.r=lastR; }
   else if(rSame<=12){ mode='reps'; plan.w=lastW; plan.r=rSame; }
   else if(jump){ mode='jump'; plan.w=jump.w; plan.r=jump.r; }
-  else if(next){ mode='reps'; plan.w=lastW; plan.r=rSame; plan.notes.push('El siguiente peso que tienes ('+fmtW(next)+' '+u+') es un salto grande para este ejercicio: sigue sumando reps aquí y, cuando hagas 4 series de 15 o más, intenta '+fmtW(next)+' × '+minJump+'.'); }
+  else if(next){ mode='reps'; plan.w=lastW; plan.r=rSame; }
   else { mode=rSame>15?'ceiling':'reps'; plan.w=lastW; plan.r=rSame; }
   plan.rMax=mode==='jump'?Math.max(plan.r,Math.min(plan.r+2,12)):plan.r+(mode==='hold'?0:1);
+  // Sugerencia secundaria: el salto ideal a la siguiente mancuerna, según tu 1RM
+  plan.e1=lastE1;
+  if(mode!=='jump'&&next){
+    const rj=repsFor(target,next);
+    // reps que necesitas con tu peso actual para que el plan te haga saltar (mín. 12, y que con el peso nuevo hagas al menos minJump)
+    const needR=Math.max(12,Math.ceil(30*(next*(1+minJump/30)/lastW-1)-1e-9));
+    // reps que harías con el peso nuevo en ese momento
+    const J=Math.max(minJump,Math.floor(30*(lastW*(1+needR/30)/next-1)+1e-9));
+    plan.next={w:next,r:Math.max(1,rj),ok:rj>=minJump,J,needR};
+  }
   plan.mode=mode;
 
   if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
@@ -2101,7 +2124,14 @@ function planHTML(name,color){
     h+='<div class="plan-tired"><div class="pt-h">¿Por qué dice que vienes cansado?</div>'+p.tiredReasons.map(r=>'<div class="pt-r">'+r+'</div>').join('')+'<div class="pt-f">Esto se quita solo cuando bajan las señales; lo más rápido es tomarte un día libre.</div></div>';
   }
   if(p.warm) h+='<div class="plan-line"><span class="pl-k">Aproximación</span> 1 serie de '+fmtW(p.warm.w)+' '+p.u+' × '+p.warm.r+' antes de empezar.</div>';
-  if(p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
+  if(p.next){
+    h+='<div class="plan-line"><span class="pl-k">Para saltar de mancuerna</span>'+(p.next.ok
+      ? 'Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+p.u+' podrías saltar a <strong>'+fmtW(p.next.w)+' '+p.u+' × '+p.next.r+'</strong>.'
+      : (p.next.needR<=20
+          ? 'Cuando hagas <strong>'+p.next.needR+' reps con '+fmtW(p.last.w)+' '+p.u+'</strong>, salta a <strong>'+fmtW(p.next.w)+' '+p.u+' × '+p.next.J+'</strong>.'
+          : 'Tu siguiente mancuerna ('+fmtW(p.next.w)+' '+p.u+') es un salto muy grande para este ejercicio: progresa con tempo lento y pausas, o con una variante.'))+'</div>';
+  }
+  if(!p.next&&p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
   p.notes.forEach(n=>{ h+='<div class="plan-line plan-note">'+n+'</div>'; });
   return h+'</div>';
 }
