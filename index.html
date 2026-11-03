@@ -587,6 +587,14 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .log-opts>span{width:100%;font-size:12px;}
 .log-opts .opt{cursor:pointer;}
 .log-opts .opt.main{--pc:var(--accent1);}
+
+/* ===== QUÉ COMPRAR ===== */
+.buy-main{display:flex;gap:14px;align-items:center;margin-bottom:12px;}
+.buy-w{font-family:'Bebas Neue',sans-serif;font-size:clamp(38px,9vw,48px);line-height:1;color:var(--accent1);white-space:nowrap;}
+.buy-txt{font-size:var(--fs-sm);color:#ddd;line-height:1.5;}
+.buy-txt strong{color:#fff;}
+.buy-sub{font-size:var(--fs-sm);color:#bbb;margin:16px 0 6px;}
+.buy-sub strong{color:#fff;}
 </style>
 </head>
 <body>
@@ -1795,6 +1803,7 @@ function viewResumen(){
   // consejos del entrenador
   const ins=coachInsights(all);
   if(ins.length) h+='<div class="bx-card"><h3>Lectura del entrenador</h3>'+ins.map(i=>'<div class="ins ins-'+i.k+'"><div class="ins-ico">'+(i.k==='good'?'✓':i.k==='warn'?'!':'i')+'</div><div>'+i.t+'</div></div>').join('')+'</div>';
+  try{ h+=buyAdviceHTML(); }catch(e){}
   // calendario
   h+='<div class="bx-card"><h3>Calendario <span class="h-note">últimas 18 semanas</span></h3>'+heatmapHTML(all)+'</div>';
   // volumen semanal
@@ -2080,6 +2089,10 @@ function exercisePlan(name){
     const J=Math.max(minJump,Math.floor(30*(lastW*(1+needR/30)/next-1)+1e-9));
     plan.next={w:next,r:Math.max(1,rj),ok:rj>=minJump,J,needR};
   }
+  if(mode!=='jump'&&!next&&lastW>=maxOwned-0.01&&repsFor(target,lastW)>12){
+    const opts=buyOptions(target,maxOwned,u,minJump);
+    if(opts.length) plan.buy={opts,best:bestBuy(opts)};
+  }
   plan.mode=mode;
 
   if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
@@ -2130,6 +2143,9 @@ function planHTML(name,color){
       : (p.next.needR<=20
           ? 'Cuando hagas <strong>'+p.next.needR+' reps con '+fmtW(p.last.w)+' '+p.u+'</strong>, salta a <strong>'+fmtW(p.next.w)+' '+p.u+' × '+p.next.J+'</strong>.'
           : 'Tu siguiente mancuerna ('+fmtW(p.next.w)+' '+p.u+') es un salto muy grande para este ejercicio: progresa con tempo lento y pausas, o con una variante.'))+'</div>';
+  }
+  if(p.buy&&p.buy.best){
+    h+='<div class="plan-line"><span class="pl-k">Para saltar de mancuerna</span>Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+p.u+', el salto ideal sería a <strong>'+fmtW(p.buy.best.w)+' '+p.u+' × '+p.buy.best.r+'</strong>. <a href="#" onclick="openBitacora();bxView(\'resumen\');setTimeout(()=>{const c=document.getElementById(\'buyCard\'); if(c) c.scrollIntoView({behavior:\'smooth\'});},150);return false" style="color:var(--pc)">¿Qué mancuerna comprar?</a></div>';
   }
   if(!p.next&&p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
   p.notes.forEach(n=>{ h+='<div class="plan-line plan-note">'+n+'</div>'; });
@@ -2419,6 +2435,51 @@ function howtoHTML(name,color){
     '<div class="ht-block"><span class="ht-k">Dónde se siente</span>'+h.feel+'</div>'+
     '<div class="ht-block ht-err"><span class="ht-k">Evita</span>'+h.error+'</div>'+
     '<div class="ht-block"><span class="ht-k">Peso</span>'+h.peso+'</div></div>';
+}
+
+// ============================================================
+//  ¿QUÉ MANCUERNA COMPRAR? Aunque ya estés en tu mancuerna más pesada,
+//  calcula con cuál harías el salto ideal (~10 reps) y cuál te conviene comprar primero.
+// ============================================================
+function buyStep(u){ return u==='kg'?2.5:5; }
+// Pesos por arriba de tu máximo con los que harías entre minJ y 12 reps superando tu 1RM
+function buyOptions(target,max,u,minJ){
+  const st=buyStep(u), out=[];
+  for(let k=1;k<=10;k++){ const w=round1(Math.ceil((max+0.001)/st)*st+(k-1)*st); if(w<=max+0.01) continue; const r=repsFor(target,w); if(r>=minJ&&r<=12) out.push({w,r}); }
+  return out;
+}
+function bestBuy(opts){ return opts.length? opts.reduce((b,o)=>Math.abs(o.r-10)<Math.abs(b.r-10)?o:b,opts[0]) : null; }
+function idealBuy(name){
+  if(isStackable(name)) return null;                     // el puente se resuelve apilando
+  const p=exercisePlan(name); if(!p||p.first||!(p.w>0)||!p.buy) return null;
+  return {name,u:p.u,lastW:p.last.w,lastR:p.last.r,opts:p.buy.opts,best:p.buy.best};
+}
+function buyAdviceHTML(){
+  const names=[]; DAYS.forEach((d,di)=>d.exercises.forEach((e,ei)=>names.push(activeName(di,ei))));
+  const list=names.map(idealBuy).filter(Boolean);
+  if(!list.length) return '';
+  const u=list[0].u, L=list.filter(x=>x.u===u);
+  // agrupa: el peso que sirve a más ejercicios, luego el siguiente para los que faltan, etc.
+  const groups=[]; let pool=L.slice();
+  while(pool.length){
+    const cnt={}; pool.forEach(x=>x.opts.forEach(o=>{ cnt[o.w]=(cnt[o.w]||0)+1; }));
+    const w=Object.keys(cnt).map(Number).sort((a,b)=>cnt[b]-cnt[a]||a-b)[0];
+    const cov=pool.filter(x=>x.opts.some(o=>o.w===w));
+    groups.push({w,items:cov.map(x=>Object.assign({},x,{r:x.opts.find(o=>o.w===w).r,pair:dbCount(x.name)===2}))});
+    pool=pool.filter(x=>!cov.includes(x));
+  }
+  const qty=g=>g.items.some(x=>x.pair)?'un par':'una mancuerna';
+  const g1=groups[0], top=Math.max(...L.map(x=>x.best.w));
+  let h='<div class="bx-card" id="buyCard"><h3>¿Qué mancuerna comprar? <span class="h-note">'+L.length+' ejercicio'+(L.length>1?'s':'')+' ya rebasaron tu mancuerna más pesada</span></h3>';
+  h+='<div class="buy-main"><div class="buy-w">'+fmtW(g1.w)+' '+u+'</div><div class="buy-txt">Compra primero <strong>'+qty(g1)+' de '+fmtW(g1.w)+' '+u+'</strong>: te sirve para <strong>'+g1.items.length+' de '+L.length+'</strong> ejercicios.</div></div>';
+  groups.forEach((g,gi)=>{
+    if(gi>0) h+='<div class="buy-sub">Después: <strong>'+qty(g)+' de '+fmtW(g.w)+' '+u+'</strong> para '+g.items.length+' más</div>';
+    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ejercicio</th><th class="num">Ahora</th><th class="num">Con '+fmtW(g.w)+'</th></tr></thead><tbody>';
+    g.items.forEach(x=>{ h+='<tr><td>'+esc(x.name)+(x.pair?'':' <span style="color:#777">(1 mancuerna)</span>')+'</td><td class="num">'+fmtW(x.lastW)+' × '+x.lastR+'</td><td class="num"><strong>'+fmtW(g.w)+' × '+x.r+'</strong></td></tr>'; });
+    h+='</tbody></table></div>';
+  });
+  h+='<div class="mb-note">Si te alcanza, unas <strong style="color:#fff">mancuernas ajustables que lleguen a '+fmtW(Math.ceil((top+buyStep(u)*4)/buyStep(u))*buyStep(u))+' '+u+' o más</strong> cubren todo esto y te dejan margen para seguir progresando. Cuando las tengas, agrégalas en ⚙ Configurar → Mis mancuernas.</div>';
+  return h+'</div>';
 }
 
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
