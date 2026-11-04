@@ -873,7 +873,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
   <div class="modal-sheet" style="max-width:620px;margin:0 auto;max-height:92vh;overflow-y:auto">
     <div class="modal-handle"></div>
     <div class="modal-title" style="margin-bottom:6px">Mis mancuernas</div>
-    <div class="cfg-desc" style="font-size:13px;line-height:1.5;margin-bottom:14px">Marca los pesos que tienes, por mancuerna. El plan de hoy solo te va a proponer estos y el botón + / − del registro salta entre ellos. El punto verde indica que ya usaste ese peso.</div>
+    <div class="cfg-desc" style="font-size:13px;line-height:1.5;margin-bottom:14px">Marca los pesos que tienes, por mancuerna. Si tienes mancuernas en lb y en kg, marca cada una en su unidad (no se convierten). El plan de hoy solo te va a proponer estos y el botón + / − del registro salta entre ellos. El punto verde indica que ya usaste ese peso.</div>
     <div class="unit-seg" style="margin-bottom:14px">
       <button class="unit-opt" id="dbUnitLb" onclick="dbSetUnit('lb')">lb</button>
       <button class="unit-opt" id="dbUnitKg" onclick="dbSetUnit('kg')">kg</button>
@@ -1583,7 +1583,7 @@ function exerciseSeries(name){
 function metricOf(series){ return (series.length&&series[series.length-1].e1rm>0)? 'e1rm':'reps'; }
 function sameKind(series){ const m=metricOf(series); return series.filter(s=>m==='e1rm'?s.e1rm>0:!(s.e1rm>0)); }
 // Mancuerna más pesada que has usado (el puente de glúteo no cuenta: ahí se apilan pesos)
-function dumbbellMaxKg(){ if(hasMyDb()){ return Math.max(...cfg.myDb.w.map(w=>toKg(w,cfg.myDb.unit))); } let mx=0; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e){ const k=toKg(e.w||0,e.u); if(k>mx) mx=k; } })); }); return mx; }
+function dumbbellMaxKg(){ if(hasMyDb()){ const m=normMyDb(); return Math.max(...m.lb.map(w=>toKg(w,'lb')),...m.kg.map(w=>toKg(w,'kg'))); } let mx=0; Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e){ const k=toKg(e.w||0,e.u); if(k>mx) mx=k; } })); }); return mx; }
 function exerciseStatus(series){
   series=sameKind(series);
   if(!series.length) return {k:'none',label:'Sin datos'};
@@ -2029,7 +2029,7 @@ function exercisePlan(name){
   const t=todayStr();
   const ser=sameKind(exerciseSeries(name).filter(s=>s.date<t));
   if(!ser.length) return firstTimePlan(name);
-  const last=ser[ser.length-1], u=hasMyDb()?cfg.myDb.unit:((last.sets[0]&&last.sets[0].u)||cfg.unit);
+  const last=ser[ser.length-1], u=planUnit((last.sets[0]&&last.sets[0].u)||cfg.unit);
   const myList=myDbIn(u);
   let lastW=last.top.r!=null?Math.round(fromKg(last.top.kg,u)*2)/2:0; const lastR=last.top.r;
   if(myList) lastW=snapTo(myList,round1(fromKg(last.top.kg,u)));
@@ -2119,7 +2119,7 @@ function firstTimePlan(name){
   if(d.bw) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair:false,notes:[],why:'Primera vez: '+(d.vest?'pon el chaleco y ':'')+'busca 10–12 reps con técnica perfecta. Si es un ejercicio de aguantar, anota los segundos como reps.'};
   const orig=d.alt.map(n=>({n,ser:sameKind(exerciseSeries(n))})).find(o=>o.ser.length&&o.ser[o.ser.length-1].e1rm>0);
   if(!orig) return {first:true,w:0,u:cfg.unit,r:10,rMax:12,sets:4,pair,notes:[],why:'Primera vez: escoge un peso con el que llegues a 10–12 reps con buena técnica.'};
-  const last=orig.ser[orig.ser.length-1], u=hasMyDb()?cfg.myDb.unit:((last.sets[0]&&last.sets[0].u)||cfg.unit);
+  const last=orig.ser[orig.ser.length-1], u=planUnit((last.sets[0]&&last.sets[0].u)||cfg.unit);
   const goal=fromKg(last.top.kg,u)*(d.start||0.7);
   const owned=ownedWeights(u,name);
   const below=owned.filter(w=>w<=goal+0.01);
@@ -2306,57 +2306,72 @@ const DB_PRESETS={
   kg:[1,1.5,2,2.5,3,4,4.5,5,5.5,6,7,7.5,8,9,9.5,10,12,12.5,14,15,16,17.5,18,20,22.5,24,25,27.5,30,32.5,35,37.5,40]
 };
 function round1(x){ return Math.round(x*10)/10; }
-function hasMyDb(){ return !!(cfg.myDb&&Array.isArray(cfg.myDb.w)&&cfg.myDb.w.length); }
-function myDbIn(u){
-  if(!hasMyDb()) return null;
-  const src=cfg.myDb.unit;
-  return cfg.myDb.w.map(w=>src===u?w:round1(convertW(w,src,u))).sort((a,b)=>a-b);
+// La tabla guarda cada mancuerna en su unidad real: {lb:[...], kg:[...]}. Nunca se convierten entre sí.
+function normMyDb(){
+  const m=cfg.myDb; if(!m) return null;
+  if(Array.isArray(m.w)){                                   // formato viejo: {unit, w} -> lo separamos por unidad
+    const u=m.unit==='kg'?'kg':'lb', o={lb:[],kg:[]};
+    o[u]=m.w.slice();
+    const other=u==='lb'?'kg':'lb', nat=detectDumbbells(other);
+    if(nat.length){                                         // pesos que en realidad eran de la otra unidad (p. ej. 3 kg -> 6.6 lb)
+      o[other]=nat;
+      const conv=nat.map(w=>convertW(w,other,u));
+      o[u]=o[u].filter(w=>!conv.some(c=>Math.abs(c-w)<0.15)||DB_PRESETS[u].indexOf(w)>=0);
+    }
+    cfg.myDb=o; saveState();
+  }
+  if(!Array.isArray(cfg.myDb.lb)) cfg.myDb.lb=[];
+  if(!Array.isArray(cfg.myDb.kg)) cfg.myDb.kg=[];
+  return cfg.myDb;
 }
+function hasMyDb(){ const m=normMyDb(); return !!(m&&(m.lb.length||m.kg.length)); }
+function myDbIn(u){ const m=normMyDb(); return (m&&m[u]&&m[u].length)? m[u].slice().sort((a,b)=>a-b) : null; }
+// Unidad del plan: la del ejercicio si tienes mancuernas en esa unidad; si no, la que sí tengas
+function planUnit(u){ if(!hasMyDb()||myDbIn(u)) return u; return myDbIn('lb')?'lb':'kg'; }
 function snapTo(list,w){ if(!list||!list.length) return w; const n=list.reduce((b,x)=>Math.abs(x-w)<Math.abs(b-w)?x:b,list[0]); return Math.abs(n-w)<=Math.max(0.6,w*0.06)?n:w; }
 // Pesos encontrados en tu historial, llevados a la unidad u (sin el puente de glúteo, donde se apila peso)
 function detectDumbbells(u){
-  const set=new Set(), presets=DB_PRESETS[u];
-  Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0){ const w=(e.u||'kg')===u?e.w:round1(convertW(e.w,e.u||'kg',u)); set.add(snapTo(presets,w)); } })); });
+  const set=new Set();
+  Object.keys(logs).forEach(n=>{ if(/Puente/.test(n)) return; Object.values(logs[n]).forEach(d=>Object.values(d).forEach(e=>{ if(e&&e.w>0&&(e.u||'kg')===u) set.add(round1(e.w)); })); });
   return [...set].sort((a,b)=>a-b);
 }
 let dbEdit=null;
 function openDbModal(){
-  const u=hasMyDb()?cfg.myDb.unit:(cfg.unit||'lb');
-  dbEdit={unit:u,sel:new Set(hasMyDb()?cfg.myDb.w:detectDumbbells(u)),auto:!hasMyDb()};
+  const has=hasMyDb(), m=normMyDb();
+  dbEdit={unit:cfg.unit||'lb',sel:{lb:new Set(has?m.lb:detectDumbbells('lb')),kg:new Set(has?m.kg:detectDumbbells('kg'))},auto:!has};
   renderDbModal();
   document.getElementById('dbModal').classList.add('active');
 }
 function closeDbModal(){ document.getElementById('dbModal').classList.remove('active'); dbEdit=null; }
 function dbModalOutside(e){ if(e.target===document.getElementById('dbModal')) closeDbModal(); }
 function renderDbModal(){
-  const u=dbEdit.unit, used=new Set(detectDumbbells(u));
-  const all=[...new Set(DB_PRESETS[u].concat([...dbEdit.sel]))].sort((a,b)=>a-b);
+  const u=dbEdit.unit, used=new Set(detectDumbbells(u)), sel=dbEdit.sel[u];
+  const all=[...new Set(DB_PRESETS[u].concat([...sel]))].sort((a,b)=>a-b);
   document.getElementById('dbUnitLb').classList.toggle('active',u==='lb');
   document.getElementById('dbUnitKg').classList.toggle('active',u==='kg');
-  document.getElementById('dbGrid').innerHTML=all.map(w=>'<button class="db-chip'+(dbEdit.sel.has(w)?' on':'')+'" onclick="dbToggle('+w+')">'+fmtW(w)+(used.has(w)?'<i title="Ya la usaste"></i>':'')+'</button>').join('');
-  const sel=[...dbEdit.sel].sort((a,b)=>a-b);
-  document.getElementById('dbSummary').innerHTML=sel.length?('<strong>'+sel.length+' pesos</strong> · de '+fmtW(sel[0])+' a '+fmtW(sel[sel.length-1])+' '+u+(dbEdit.auto?' · <span style="color:#ffbe3c">detectados de tu historial, revísalos</span>':'')):'Ninguno marcado: la app usará tu historial.';
+  document.getElementById('dbUnitLb').textContent='lb'+(dbEdit.sel.lb.size?' ('+dbEdit.sel.lb.size+')':'');
+  document.getElementById('dbUnitKg').textContent='kg'+(dbEdit.sel.kg.size?' ('+dbEdit.sel.kg.size+')':'');
+  document.getElementById('dbGrid').innerHTML=all.map(w=>'<button class="db-chip'+(sel.has(w)?' on':'')+'" onclick="dbToggle('+w+')">'+fmtW(w)+(used.has(w)?'<i title="Ya la usaste"></i>':'')+'</button>').join('');
+  const part=k=>{ const a=[...dbEdit.sel[k]].sort((x,y)=>x-y); return a.length?'<strong>'+a.length+' en '+k+'</strong> ('+a.map(fmtW).join(', ')+')':''; };
+  const txt=[part('lb'),part('kg')].filter(Boolean).join(' · ');
+  document.getElementById('dbSummary').innerHTML=txt?(txt+(dbEdit.auto?' · <span style="color:#ffbe3c">detectados de tu historial, revísalos</span>':'')):'Ninguno marcado: la app usará tu historial.';
 }
-function dbToggle(w){ if(dbEdit.sel.has(w)) dbEdit.sel.delete(w); else dbEdit.sel.add(w); dbEdit.auto=false; renderDbModal(); }
-function dbSetUnit(u){
-  if(u===dbEdit.unit) return;
-  const conv=[...dbEdit.sel].map(w=>snapTo(DB_PRESETS[u],round1(convertW(w,dbEdit.unit,u))));
-  dbEdit.unit=u; dbEdit.sel=new Set(conv); renderDbModal();
-}
+function dbToggle(w){ const s=dbEdit.sel[dbEdit.unit]; if(s.has(w)) s.delete(w); else s.add(w); dbEdit.auto=false; renderDbModal(); }
+function dbSetUnit(u){ if(u===dbEdit.unit) return; dbEdit.unit=u; renderDbModal(); }   // solo cambia de lista, no convierte
 function dbAddCustom(){
   const inp=document.getElementById('dbCustom'); const w=parseFloat(String(inp.value).replace(',','.'));
-  if(!(w>0)) return; dbEdit.sel.add(round1(w)); inp.value=''; dbEdit.auto=false; renderDbModal();
+  if(!(w>0)) return; dbEdit.sel[dbEdit.unit].add(round1(w)); inp.value=''; dbEdit.auto=false; renderDbModal();
 }
-function dbDetect(){ dbEdit.sel=new Set(detectDumbbells(dbEdit.unit)); dbEdit.auto=true; renderDbModal(); }
+function dbDetect(){ dbEdit.sel={lb:new Set(detectDumbbells('lb')),kg:new Set(detectDumbbells('kg'))}; dbEdit.auto=true; renderDbModal(); }
 function dbSave(){
-  const w=[...dbEdit.sel].sort((a,b)=>a-b);
-  cfg.myDb=w.length?{unit:dbEdit.unit,w}:null;
+  const lb=[...dbEdit.sel.lb].sort((a,b)=>a-b), kg=[...dbEdit.sel.kg].sort((a,b)=>a-b);
+  cfg.myDb=(lb.length||kg.length)?{lb,kg}:null;
   saveState(); closeDbModal(); updateDbDesc(); _extraCache=null; _animateReveal=false; buildFocusView();
 }
 function dbClear(){ cfg.myDb=null; saveState(); closeDbModal(); updateDbDesc(); _animateReveal=false; buildFocusView(); }
 function updateDbDesc(){
   const el=document.getElementById('cfgDbDesc'); if(!el) return;
-  if(hasMyDb()){ const w=cfg.myDb.w; el.textContent=w.length+' pesos · de '+fmtW(w[0])+' a '+fmtW(w[w.length-1])+' '+cfg.myDb.unit; }
+  if(hasMyDb()){ const m=normMyDb(); el.textContent=['lb','kg'].filter(k=>m[k].length).map(k=>{ const a=m[k].slice().sort((x,y)=>x-y); return a.length+' en '+k+' ('+fmtW(a[0])+'–'+fmtW(a[a.length-1])+')'; }).join(' · '); }
   else el.textContent='Automático: según los pesos de tu historial';
 }
 
