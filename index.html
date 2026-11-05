@@ -595,6 +595,20 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .buy-txt strong{color:#fff;}
 .buy-sub{font-size:var(--fs-sm);color:#bbb;margin:16px 0 6px;}
 .buy-sub strong{color:#fff;}
+
+/* ===== VUELTAS ===== */
+.cycle-next{font-size:12px;color:#999;margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.cycle-next strong{color:#ddd;font-weight:600;}
+.cycle-next button{background:transparent;border:1px solid var(--border);color:#ccc;border-radius:100px;padding:3px 12px;font-family:'DM Sans',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.cycle-banner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:var(--sp);padding:14px 16px;border-radius:16px;border:1px solid rgba(200,245,58,.35);background:linear-gradient(135deg,rgba(200,245,58,.14),rgba(58,245,200,.06));}
+.cycle-banner>div{flex:1;min-width:180px;font-size:var(--fs-sm);color:#ddd;line-height:1.45;}
+.cycle-banner b{display:block;font-family:'Bebas Neue',sans-serif;font-size:24px;letter-spacing:1px;font-weight:400;color:var(--accent1);}
+.cycle-banner button{background:var(--accent1);color:#0a0a0a;border:none;border-radius:100px;padding:9px 16px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:12px;cursor:pointer;}
+#fwCanvas{position:fixed;inset:0;z-index:10000;pointer-events:none;opacity:0;transition:opacity .3s;}
+#fwCanvas.active{opacity:1;}
+.cycle-overlay.active{background:rgba(0,0,0,0.82);}
+.cel-stat em{font-style:normal;font-size:11px;color:#999;}
+.cy-prs{font-size:13px;color:#aaa;line-height:1.5;margin:-14px 0 22px;}
 </style>
 </head>
 <body>
@@ -612,8 +626,9 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 </header>
 
 <div class="global-progress">
-  <div class="progress-label"><span>Progreso total hoy</span><span id="globalPct">0%</span></div>
+  <div class="progress-label"><span id="cycleLabel">Vuelta</span><span id="globalPct">0%</span></div>
   <div class="progress-track"><div class="progress-fill" id="globalBar"></div></div>
+  <div class="cycle-next" id="cycleNext"></div>
 </div>
 
 <div class="tabs-wrapper">
@@ -648,6 +663,7 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
       <div class="rb-txt"><b>HOY ES DÍA DE DESCANSO</b>Recupérate: hoy es cuando el músculo crece. Mañana sigues donde te quedaste.</div>
       <button onclick="undoRest()">Entrenar de todos modos</button>
     </div>
+    <div id="cycleBannerWrap"></div>
     <div id="extraWrap"></div>
     <div id="mobileWarmup" class="mobile-warmup"></div>
     <div id="focusCard"></div>
@@ -774,6 +790,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
         <button class="unit-opt" id="cfgUnitKg" onclick="setDefaultUnit('kg')">kg</button>
         <button class="unit-opt" id="cfgUnitLb" onclick="setDefaultUnit('lb')">lb</button>
       </div>
+    </div>
+    <div class="cfg-row">
+      <div><div class="cfg-label">Vuelta actual</div><div class="cfg-desc" id="cfgCycleDesc"></div></div>
+      <button class="bx-btn" onclick="closeConfig();startNewCycle(true)">Reiniciar vuelta</button>
     </div>
     <div class="cfg-row">
       <div><div class="cfg-label">Mis mancuernas</div><div class="cfg-desc" id="cfgDbDesc">Automático: según los pesos de tu historial</div></div>
@@ -1022,6 +1042,8 @@ const cfg={seriesSec:30,exerciseSec:300,warmupSec:30,sound:true,vibrate:true,aut
 let restLog={};
 // Refuerzos: extras['AAAA-MM-DD'] = {m, name, di, ei, sets, status:'sugerido'|'agregado'|'descartado', done:[...]}
 let extras={};
+let vuelta=null;     // vuelta actual {n, start, done}
+let vueltas=[];     // vueltas terminadas (resumen)
 let rotations={};   // bloques de variantes activos
 let rotNext={};     // 'di-ei' -> fecha antes de la cual no se vuelve a proponer variar
 // Registros de peso y reps por ejercicio:  logs[nombreEjercicio][fecha][indiceSerie] = {r:reps, w:peso, u:'kg'|'lb'}
@@ -1036,7 +1058,7 @@ let _animateReveal=true; // controla el revelado progresivo (solo al cambiar de 
 const SAVE_KEY='rutina4dias_v1';
 function saveState(){
   try{
-    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext,currentDay,currentEx}));
+    localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext,vuelta,vueltas,currentDay,currentEx}));
   }catch(e){}
 }
 function loadState(){
@@ -1058,6 +1080,8 @@ function loadState(){
     if(data.logs&&typeof data.logs==='object'&&!Array.isArray(data.logs))logs=data.logs;
     if(data.sessions&&typeof data.sessions==='object'&&!Array.isArray(data.sessions))sessions=data.sessions;
     if(data.rotations&&typeof data.rotations==='object'&&!Array.isArray(data.rotations))rotations=data.rotations;
+    if(data.vuelta&&typeof data.vuelta==='object')vuelta=data.vuelta;
+    if(Array.isArray(data.vueltas))vueltas=data.vueltas;
     if(data.rotNext&&typeof data.rotNext==='object'&&!Array.isArray(data.rotNext))rotNext=data.rotNext;
     if(data.extras&&typeof data.extras==='object'&&!Array.isArray(data.extras))extras=data.extras;
     if(data.restLog&&typeof data.restLog==='object'&&!Array.isArray(data.restLog))restLog=data.restLog;
@@ -1312,6 +1336,7 @@ function removeLog(){
     closeLogModal(); extraSetDone(si,false); return;
   }
   state[di][ei][si]=false;
+  if(vuelta&&vuelta.done&&!cycleComplete()) vuelta.done=null;
   if(logs[name]&&logs[name][t]){ delete logs[name][t][si]; if(Object.keys(logs[name][t]).length===0) delete logs[name][t]; if(logs[name]&&Object.keys(logs[name]).length===0) delete logs[name]; }
   closeLogModal();
   touchSession(di);
@@ -1323,6 +1348,7 @@ function removeLog(){
 // Marca la serie como hecha y dispara timer/avance (lo que antes hacía toggleSet)
 function markSetDone(di,ei,si){
   state[di][ei][si]=true;
+  if(vuelta&&!vuelta.start){ vuelta.start=todayStr(); }
   touchSession(di);
   refreshRestBanner();
   const allSets=state[di][ei].every(Boolean);
@@ -1518,16 +1544,16 @@ function inferDayDate(di){
   return last;
 }
 function clearStaleMarks(){
-  const t=todayStr(); let changed=false;
-  DAYS.forEach((_,di)=>{
-    const any=state[di].flat().some(Boolean);
-    if(!any){ stateDates[di]=null; return; }
-    if(!stateDates[di]) stateDates[di]=inferDayDate(di);
-    const complete=state[di].flat().every(Boolean);
-    if(complete&&stateDates[di]&&stateDates[di]<t){ state[di].forEach(ex=>ex.fill(false)); stateDates[di]=null; changed=true; }
-  });
-  if(changed){ saveState(); }
-  return changed;
+  // Ya no se borra ningún día suelto. Solo cuando la vuelta completa (D1→D4) terminó en una fecha anterior,
+  // al abrir la app empieza la siguiente vuelta.
+  seedCycle();
+  const t=todayStr();
+  DAYS.forEach((_,di)=>{ if(state[di].flat().some(Boolean)&&!stateDates[di]) stateDates[di]=inferDayDate(di); });
+  if(cycleComplete()){
+    if(!vuelta.done){ vuelta.done=stateDates.filter(Boolean).sort().slice(-1)[0]||t; saveState(); }
+    if(vuelta.done<t){ startNewCycle(false); return true; }
+  }
+  return false;
 }
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&clearStaleMarks()){ _animateReveal=true; buildFocusView(); updateProgress(); refreshBanners(); }
@@ -1799,6 +1825,7 @@ function viewResumen(){
     kpi(streak,'Semanas seguidas','entrenando al menos 1 vez')+
     kpi(fmtBig(fromKg(v30,u)),'Volumen 30 días ('+u+')',dv===null?'peso × reps':'<span class="'+(dv>=0?'t-up':'t-down')+'">'+(dv>=0?'▲ +':'▼ ')+dv+'%</span> vs 30 días previos')+
     kpi(prs,'Récords en 30 días','mejores marcas estimadas')+
+    (function(){ const done=vueltas.filter(v=>v.complete&&!v.approx); if(!done.length) return ''; const avg=done.reduce((a,v)=>a+v.span,0)/done.length; return kpi(done.length,'Vueltas completadas','promedio '+avg.toFixed(1).replace('.',',')+' días por vuelta'); })()+
   '</div>';
   // consejos del entrenador
   const ins=coachInsights(all);
@@ -1925,7 +1952,7 @@ function download(name,text,type){
 }
 function exportBackup(){
   cfg.lastBackup=todayStr(); saveState();
-  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext}),'application/json');
+  download('rutinafuerza-respaldo-'+todayStr()+'.json',JSON.stringify({app:'rutinaFuerza',v:3,exported:new Date().toISOString(),state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext,vuelta,vueltas}),'application/json');
   if(document.getElementById('bitacora').classList.contains('active')) bxView(bxCurrent);
   const bd=document.getElementById('cfgBackupDesc'); if(bd) bd.textContent='Último respaldo: hoy';
 }
@@ -2497,6 +2524,156 @@ function buyAdviceHTML(){
   return h+'</div>';
 }
 
+// ============================================================
+//  VUELTAS: D1→D4 completos. Ningún día se borra hasta terminar la última serie pendiente
+//  de toda la vuelta; entonces viene la celebración grande y al día siguiente empieza otra.
+// ============================================================
+function cycleTotal(){ return DAYS.reduce((a,d)=>a+d.exercises.length*4,0); }
+function cycleDone(){ return state.reduce((a,d)=>a+d.flat().filter(Boolean).length,0); }
+function cycleComplete(){ return state.every(d=>d.every(ex=>ex.every(Boolean))); }
+function dayComplete(di){ return state[di].flat().every(Boolean); }
+function daysComplete(){ return DAYS.filter((_,di)=>dayComplete(di)).length; }
+function seedCycle(){
+  if(vuelta&&vuelta.n) return;
+  // número aproximado de vueltas ya hechas, según tus series registradas
+  let sets=0; Object.values(logs).forEach(x=>Object.values(x).forEach(d=>{ sets+=Object.keys(d).length; }));
+  const ds=stateDates.filter(Boolean).sort();
+  vuelta={n:Math.floor(sets/cycleTotal())+1,start:ds[0]||null,done:null,approx:true};
+}
+// Lo que sigue: termina el día que estás haciendo; si ya está completo, el siguiente día con pendientes
+function nextPending(){
+  let base=currentDay, last='';
+  stateDates.forEach((d,di)=>{ if(d&&d>last&&!dayComplete(di)){ last=d; base=di; } });
+  if(!last){ let ld=''; stateDates.forEach((d,di)=>{ if(d&&d>ld){ ld=d; base=di; } }); }
+  for(let k=0;k<DAYS.length;k++){
+    const di=(base+k)%DAYS.length;
+    const ei=state[di].findIndex(ex=>!ex.every(Boolean));
+    if(ei>=0) return {di,ei};
+  }
+  return null;
+}
+function startNewCycle(manual){
+  if(manual){
+    const left=cycleTotal()-cycleDone();
+    if(left>0&&!confirm('Tu vuelta '+vuelta.n+' no está completa (faltan '+left+' series). ¿Empezar una vuelta nueva de todas formas?')) return;
+  }
+  const s=cycleSummary(); s.complete=cycleComplete(); vueltas.push(s);
+  state.forEach(d=>d.forEach(ex=>ex.fill(false)));
+  for(let i=0;i<stateDates.length;i++) stateDates[i]=null;
+  vuelta={n:vuelta.n+1,start:null,done:null};
+  currentDay=0; currentEx=0;
+  saveState();
+  const co=document.getElementById('cycleOverlay'); if(co) co.classList.remove('active');
+  setActiveTabVisual(0); _animateReveal=true; buildFocusView(); updateProgress(); refreshBanners();
+}
+function cycleSummary(){
+  const t=todayStr(), start=vuelta.start||t, end=vuelta.done||t;
+  const all=getAllSessions().filter(s=>s.date>=start&&s.date<=end);
+  const dates=new Set(all.map(s=>s.date));
+  let prs=0; const prNames=[];
+  DAYS.forEach((d,di)=>d.exercises.forEach((e,ei)=>{ const n=activeName(di,ei); const ser=sameKind(exerciseSeries(n)); const m=metricOf(ser); let best=-1;
+    ser.forEach(s=>{ if(s[m]>best+0.01){ if(best>=0&&s.date>=start&&s.date<=end){ prs++; if(prNames.indexOf(n)<0) prNames.push(n); } best=s[m]; } }); }));
+  return {n:vuelta.n,start,end,approx:!!vuelta.approx,days:dates.size,span:daysBetween(start,end)+1,sets:all.reduce((a,s)=>a+s.sets,0),vol:all.reduce((a,s)=>a+s.vol,0),prs,prNames};
+}
+function cycleBannerHTML(){
+  if(!cycleComplete()) return '';
+  return '<div class="cycle-banner"><div><b>🏁 VUELTA '+vuelta.n+' COMPLETA</b>Mañana, al abrir la app, empieza la vuelta '+(vuelta.n+1)+'.</div><button onclick="startNewCycle(true)">Empezar la vuelta '+(vuelta.n+1)+' ahora</button></div>';
+}
+function refreshCycleUI(){
+  const lbl=document.getElementById('cycleLabel'), pct=document.getElementById('globalPct'), bar=document.getElementById('globalBar'), nx=document.getElementById('cycleNext');
+  if(!lbl) return;
+  const p=Math.round(cycleDone()/cycleTotal()*100);
+  lbl.textContent='Vuelta '+vuelta.n+' · '+daysComplete()+' de 4 días';
+  pct.textContent=p+'%'; bar.style.width=p+'%';
+  DAYS.forEach((_,di)=>{ const t=document.querySelector('#tab'+di+' .day-num'); if(t) t.textContent='D'+(di+1)+(dayComplete(di)?' ✓':''); });
+  const n=nextPending();
+  if(nx){
+    if(!n){ nx.innerHTML='<span>🏁 Vuelta completa</span>'; }
+    else { const here=(n.di===currentDay&&n.ei===currentEx); nx.innerHTML='Sigue: <strong>D'+(n.di+1)+' · '+String(n.ei+1).padStart(2,'0')+' '+esc(activeName(n.di,n.ei))+'</strong>'+(here?'':' <button onclick="goNextPending()">Ir</button>'); }
+  }
+  const cb=document.getElementById('cycleBannerWrap'); if(cb) cb.innerHTML=cycleBannerHTML();
+}
+function goNextPending(){ const n=nextPending(); if(!n) return; if(n.di!==currentDay){ setActiveTabVisual(n.di); currentDay=n.di; } currentEx=n.ei; _animateReveal=true; buildFocusView(); updateProgress(); saveState(); }
+
+// ---- Celebración grande: fuegos artificiales + fanfarria (melodía original) ----
+let fw=null;
+function fireworks(ms){
+  const c=document.getElementById('fwCanvas'); if(!c) return;
+  const ctx=c.getContext('2d'); c.width=window.innerWidth; c.height=window.innerHeight; c.classList.add('active');
+  const colors=DAYS.map(d=>d.color).concat(['#ffffff','#ffdd55']);
+  const rockets=[], sparks=[]; const t0=performance.now(); let lastLaunch=0;
+  if(fw) cancelAnimationFrame(fw.raf);
+  fw={raf:0};
+  const launch=()=>{ rockets.push({x:c.width*(0.15+Math.random()*0.7),y:c.height,vx:(Math.random()-0.5)*1.5,vy:-(c.height/55)*(0.75+Math.random()*0.3),color:colors[Math.floor(Math.random()*colors.length)],fuse:38+Math.random()*18}); };
+  const burst=r=>{ const n=70+Math.floor(Math.random()*40), sp=2.5+Math.random()*2.5; for(let i=0;i<n;i++){ const a=Math.PI*2*i/n, v=sp*(0.6+Math.random()*0.5); sparks.push({x:r.x,y:r.y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,color:Math.random()<0.15?'#ffffff':r.color}); } if(cfg.sound) pop(); };
+  const step=now=>{
+    const el=now-t0;
+    ctx.globalCompositeOperation='destination-out'; ctx.fillStyle='rgba(0,0,0,0.22)'; ctx.fillRect(0,0,c.width,c.height);
+    ctx.globalCompositeOperation='lighter';
+    if(el<ms&&now-lastLaunch>260+Math.random()*260){ launch(); if(Math.random()<0.35) launch(); lastLaunch=now; }
+    for(let i=rockets.length-1;i>=0;i--){ const r=rockets[i]; r.x+=r.vx; r.y+=r.vy; r.vy+=0.12; r.fuse--;
+      ctx.fillStyle=r.color; ctx.beginPath(); ctx.arc(r.x,r.y,2.2,0,Math.PI*2); ctx.fill();
+      if(r.fuse<=0||r.vy>=0){ burst(r); rockets.splice(i,1); } }
+    for(let i=sparks.length-1;i>=0;i--){ const p=sparks[i]; p.x+=p.vx; p.y+=p.vy; p.vy+=0.045; p.vx*=0.985; p.vy*=0.985; p.life-=0.0105;
+      if(p.life<=0){ sparks.splice(i,1); continue; }
+      ctx.globalAlpha=Math.max(0,p.life); ctx.fillStyle=p.color; ctx.beginPath(); ctx.arc(p.x,p.y,1.8,0,Math.PI*2); ctx.fill(); ctx.globalAlpha=1; }
+    if(el<ms||rockets.length||sparks.length){ fw.raf=requestAnimationFrame(step); }
+    else { ctx.clearRect(0,0,c.width,c.height); c.classList.remove('active'); }
+  };
+  launch(); fw.raf=requestAnimationFrame(step);
+}
+let _audio=null;
+function audioCtx(){ try{ if(!_audio) _audio=new (window.AudioContext||window.webkitAudioContext)(); if(_audio.state==='suspended') _audio.resume(); return _audio; }catch(e){ return null; } }
+function pop(){
+  const ctx=audioCtx(); if(!ctx) return;
+  const len=ctx.sampleRate*0.35, buf=ctx.createBuffer(1,len,ctx.sampleRate), d=buf.getChannelData(0);
+  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/len,3);
+  const src=ctx.createBufferSource(), g=ctx.createGain(), f=ctx.createBiquadFilter(); f.type='lowpass'; f.frequency.value=900+Math.random()*900;
+  src.buffer=buf; src.connect(f); f.connect(g); g.connect(ctx.destination); g.gain.value=0.25; src.start();
+}
+// Fanfarria de "nivel superado" — composición original para esta app
+function playFanfare(){
+  const ctx=audioCtx(); if(!ctx) return; const T=ctx.currentTime+0.05;
+  const N={A2:110,D3:146.83,A3:220,D4:293.66,Fs4:369.99,A4:440,B4:493.88,D5:587.33,E5:659.25,Fs5:739.99,G5:783.99,A5:880,B5:987.77,Cs6:1108.73,D6:1174.66};
+  const tone=(f,t,dur,type,vol,vib)=>{ const o=ctx.createOscillator(), g=ctx.createGain(); o.type=type; o.frequency.setValueAtTime(f,T+t);
+    if(vib){ const l=ctx.createOscillator(), lg=ctx.createGain(); l.frequency.value=6; lg.gain.value=f*0.012; l.connect(lg); lg.connect(o.frequency); l.start(T+t); l.stop(T+t+dur); }
+    g.gain.setValueAtTime(0,T+t); g.gain.linearRampToValueAtTime(vol,T+t+0.015); g.gain.setValueAtTime(vol*0.85,T+t+dur*0.7); g.gain.exponentialRampToValueAtTime(0.001,T+t+dur);
+    o.connect(g); g.connect(ctx.destination); o.start(T+t); o.stop(T+t+dur+0.02); };
+  const noise=(t,dur,vol,freq)=>{ const len=Math.floor(ctx.sampleRate*dur), b=ctx.createBuffer(1,len,ctx.sampleRate), d=b.getChannelData(0); for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
+    const s=ctx.createBufferSource(), g=ctx.createGain(), f=ctx.createBiquadFilter(); f.type='highpass'; f.frequency.value=freq; s.buffer=b; s.connect(f); f.connect(g); g.connect(ctx.destination); g.gain.value=vol; s.start(T+t); };
+  // 1) redoble que crece
+  for(let i=0;i<14;i++) noise(i*0.055,0.05,0.05+i*0.012,1800);
+  // 2) arpegio que sube (Re mayor)
+  [N.A4,N.D5,N.Fs5,N.A5,N.D6].forEach((f,i)=>tone(f,0.8+i*0.075,0.14,'square',0.11));
+  tone(N.D3,0.8,0.4,'triangle',0.3);
+  // 3) motivo: ta-ta-taaa con subida final
+  const m=[[N.B5,1.25,0.12],[N.B5,1.4,0.12],[N.Cs6,1.55,0.22],[N.A5,1.82,0.12],[N.B5,1.97,0.12],[N.Cs6,2.12,0.12]];
+  m.forEach(([f,t,d])=>{ tone(f,t,d,'square',0.12); tone(f/2,t,d,'triangle',0.08); });
+  tone(N.A2,1.25,0.6,'triangle',0.3); tone(N.A3,1.82,0.4,'triangle',0.22);
+  // 4) acorde final largo con vibrato + platillo
+  [N.D5,N.Fs5,N.A5,N.D6].forEach(f=>tone(f,2.3,1.6,'square',0.075,true));
+  [N.D3,N.D4].forEach(f=>tone(f,2.3,1.6,'triangle',0.25));
+  noise(2.3,1.2,0.18,5000); noise(2.3,0.12,0.25,200);
+}
+function showCycleCelebration(){
+  const s=cycleSummary(), prev=vueltas.filter(v=>v.complete).slice(-1)[0];
+  const u=cfg.unit;
+  document.getElementById('cyTitle').textContent='¡VUELTA '+vuelta.n+' COMPLETA!';
+  document.getElementById('cySub').textContent='Hiciste D1 → D4 completos'+(s.approx?'':' en '+s.span+' día'+(s.span===1?'':'s'))+'.';
+  const cmp=(a,b,lower)=>{ if(b==null||!(b>0)) return ''; const d=Math.round((a/b-1)*100); if(d===0) return '<em>= vuelta anterior</em>'; const good=lower?d<0:d>0; return '<em class="'+(good?'t-up':'t-down')+'">'+(d>0?'+':'')+d+'% vs anterior</em>'; };
+  const stat=(v,l,c)=>'<div class="cel-stat"><strong>'+v+'</strong>'+l+(c?'<br>'+c:'')+'</div>';
+  document.getElementById('cyStats').innerHTML=
+    (s.approx?'':stat(s.span,'Días',prev?cmp(s.span,prev.span,true):''))+
+    stat(s.sets,'Series',prev?cmp(s.sets,prev.sets):'')+
+    stat(s.vol>0?fmtBig(fromKg(s.vol,u)):'—','Volumen ('+u+')',prev?cmp(s.vol,prev.vol):'')+
+    stat(s.prs,'Récords','');
+  document.getElementById('cyPrs').innerHTML=s.prNames.length?'Récords en esta vuelta: '+s.prNames.slice(0,6).map(esc).join(', ')+(s.prNames.length>6?'…':''):'';
+  document.getElementById('cycleOverlay').classList.add('active');
+  if(cfg.sound) playFanfare();
+  fireworks(6500);
+}
+function closeCycleCelebration(){ document.getElementById('cycleOverlay').classList.remove('active'); }
+
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
 let timerDeadline=0; // timestamp absoluto de cuando termina
 
@@ -2744,7 +2921,7 @@ function toggleCfg(key){
   if(key==='restAdvice'&&!cfg.restAdvice){ refreshRestBanner(); }
   if(key==='extraAdvice'||key==='vest'){ _extraCache=null; _animateReveal=false; buildFocusView(); }
 }
-function openConfig(){updateDbDesc();updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
+function openConfig(){updateDbDesc();(function(){const e=document.getElementById('cfgCycleDesc'); if(e&&vuelta) e.textContent='Vuelta '+vuelta.n+' · '+daysComplete()+' de 4 días · '+(cycleTotal()-cycleDone())+' series pendientes';})();updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
 function closeConfig(){document.getElementById('configModal').classList.remove('active');}
 function closeConfigOutside(e){if(e.target===document.getElementById('configModal'))closeConfig();}
 
@@ -2757,14 +2934,19 @@ function updateProgress(){
     const tab=document.getElementById('tab'+di);
     if(done>0){tab.classList.add('has-progress');if(count)count.textContent=done+'/'+total;}
     else tab.classList.remove('has-progress');
-    if(di===currentDay){document.getElementById('globalBar').style.width=pct+'%';document.getElementById('globalPct').textContent=pct+'%';}
     const tp=document.getElementById('tabprog'+di);
     if(tp)tp.style.width=pct+'%';
   });
+  refreshCycleUI();
 }
 function checkDayComplete(di){
   const allDone=state[di].flat().every(Boolean);
   document.getElementById('banner'+di).classList.toggle('show',allDone);
+  if(cycleComplete()){
+    if(!vuelta.done){ vuelta.done=todayStr(); saveState(); setTimeout(showCycleCelebration,400); }
+    refreshCycleUI();
+    return;
+  }
   if(allDone){
     // small delay so set-btn animation finishes first
     setTimeout(()=>showCelebration(di),400);
@@ -2953,7 +3135,7 @@ function closeCelebration(){
   setTimeout(()=>{confettiParticles=[];},800);
 }
 
-initConfetti();loadState();clearStaleMarks();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();refreshRestBanner();setTimeout(maybeSuggestRest,900);
+initConfetti();loadState();clearStaleMarks();(function(){ const t=todayStr(); if(cfg.lastOpen!==t){ const n=nextPending(); if(n){ currentDay=n.di; currentEx=n.ei; } cfg.lastOpen=t; saveState(); } })();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();refreshRestBanner();setTimeout(maybeSuggestRest,900);
 // ═══════════════════════════════════════════════════
 // FOCUS MODE
 // ═══════════════════════════════════════════════════
@@ -3120,6 +3302,17 @@ document.addEventListener('touchend', e => {
 </script>
 
 <canvas id="confettiCanvas"></canvas>
+<canvas id="fwCanvas"></canvas>
+<div class="celebration-overlay cycle-overlay" id="cycleOverlay" onclick="closeCycleCelebration()">
+  <div class="celebration-card" onclick="event.stopPropagation()">
+    <span class="cel-emoji">&#127942;</span>
+    <div class="cel-title" id="cyTitle" style="color:var(--accent1)">¡VUELTA COMPLETA!</div>
+    <div class="cel-sub" id="cySub"></div>
+    <div class="cel-stats" id="cyStats"></div>
+    <div class="cy-prs" id="cyPrs"></div>
+    <button class="cel-close" style="background:var(--accent1);color:#0a0a0a" onclick="closeCycleCelebration()">&#127881; ¡Vamos por la siguiente!</button>
+  </div>
+</div>
 <div class="celebration-overlay" id="celebrationOverlay" onclick="closeCelebration()">
   <div class="celebration-card" onclick="event.stopPropagation()">
     <span class="cel-emoji" id="celEmoji">&#127942;</span>
