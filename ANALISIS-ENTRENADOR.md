@@ -84,3 +84,17 @@ El calentamiento general está muy bien. Agrega **1–2 series ligeras del prime
 - **Respaldo:** descargar o restaurar en JSON y exportar a CSV (Excel o Sheets). Hasta ahora todo vivía solo en el navegador; si se borraban los datos del sitio, se perdían meses.
 
 > No cambié ningún ejercicio. Los nombres son la clave del historial, así que si decides aplicar los cambios de arriba, lo hacemos juntos para que tu historial no se rompa.
+
+## Modo dinámico (priorización muscular)
+
+En lugar de un orden fijo, cada sesión la app recomienda **qué día conviene hoy** según tres cosas:
+
+- **Rezago:** series efectivas de los últimos 7 días contra la meta semanal de cada grupo. Una serie cuenta 1 para el músculo principal y ½ para los que ayudan (un press cuenta ½ para tríceps y hombro; un remo, ½ para bíceps y hombro posterior). Metas: espalda 14; pecho, cuádriceps y glúteo 12; hombro, bíceps, tríceps e isquios 10; hombro posterior, gemelos y core 8; trapecio 6.
+- **Recuperación:** grupos grandes (pecho, espalda, cuádriceps, isquios, glúteo) ~72 h; chicos ~48 h (core 36 h). Menos tiempo si la última sesión fue corta (3 series o menos) y más si hay señales de cansancio.
+- **Volumen acumulado:** un grupo que ya está en su meta pasa a "Cubierto" y no empuja la recomendación.
+
+Se descarta el día cuyo trabajo cae en más de la mitad sobre músculos sin recuperar, y se elige el de mayor rezago ponderado. Si ya empezaste un día hoy, primero te pide terminarlo. La tarjeta "¿Qué entreno hoy?" explica el porqué y tiene la tabla completa de balance. Arriba, la barra muestra cuántos grupos están en su meta. Cuando los 12 llegan a su meta en 7 días, sale la celebración **"¡Semana equilibrada!"** (como máximo una vez por semana).
+
+Con la rutina actual, una vuelta por semana deja cortos espalda, trapecio, cuádriceps, isquios y gemelos. Hacer D2 y D4 dos veces por semana (y D1 y D3 una) los lleva a todos a su meta, y eso es lo que el modo dinámico tiende a recomendar.
+
+Las **vueltas D1→D4** siguen disponibles en ⚙ Configurar → Modo de entrenamiento.

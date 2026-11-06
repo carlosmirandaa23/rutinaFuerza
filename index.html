@@ -609,6 +609,15 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
 .cycle-overlay.active{background:rgba(0,0,0,0.82);}
 .cel-stat em{font-style:normal;font-size:11px;color:#999;}
 .cy-prs{font-size:13px;color:#aaa;line-height:1.5;margin:-14px 0 22px;}
+
+/* ===== MODO DINÁMICO ===== */
+.dyn-card{border:1px solid color-mix(in srgb,var(--pc) 45%,transparent);background:color-mix(in srgb,var(--pc) 7%,#111);border-radius:16px;padding:14px 16px;margin-bottom:var(--sp);}
+.dyn-lbl{font-size:var(--fs-xs);letter-spacing:2px;text-transform:uppercase;color:var(--pc);font-weight:700;margin-bottom:4px;}
+.dyn-head{font-family:'Bebas Neue',sans-serif;font-size:clamp(24px,6vw,30px);letter-spacing:.5px;color:#fff;line-height:1.1;}
+.dyn-txt{font-size:var(--fs-sm);color:#ccc;line-height:1.5;margin-top:6px;}
+.dyn-txt strong{color:#fff;}
+.dyn-go{margin-top:10px;border:none;border-radius:100px;padding:9px 18px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:13px;cursor:pointer;}
+.dyn-tbl td,.dyn-tbl th{font-size:12px;padding:6px 5px;}
 </style>
 </head>
 <body>
@@ -792,6 +801,10 @@ h1{font-family:'Bebas Neue',sans-serif;font-size:clamp(36px,7vw,72px);letter-spa
       </div>
     </div>
     <div class="cfg-row">
+      <div><div class="cfg-label">Modo de entrenamiento</div><div class="cfg-desc">Dinámico: cada sesión te recomienda el día según rezago y recuperación. Vueltas: D1→D4 completos.</div></div>
+      <div class="unit-seg"><button class="unit-opt" id="modeDyn" onclick="setMode('dinamico')">Dinámico</button><button class="unit-opt" id="modeCyc" onclick="setMode('vueltas')">Vueltas</button></div>
+    </div>
+    <div class="cfg-row" id="cfgCycleRow">
       <div><div class="cfg-label">Vuelta actual</div><div class="cfg-desc" id="cfgCycleDesc"></div></div>
       <button class="bx-btn" onclick="closeConfig();startNewCycle(true)">Reiniciar vuelta</button>
     </div>
@@ -1057,6 +1070,7 @@ let _animateReveal=true; // controla el revelado progresivo (solo al cambiar de 
 // ===== GUARDADO LOCAL (persiste aunque cierres la página) =====
 const SAVE_KEY='rutina4dias_v1';
 function saveState(){
+  if(typeof _msCache!=='undefined') _msCache=null;
   try{
     localStorage.setItem(SAVE_KEY,JSON.stringify({v:3,state,stateDates,cfg,logs,sessions,restLog,extras,rotations,rotNext,vuelta,vueltas,currentDay,currentEx}));
   }catch(e){}
@@ -1357,6 +1371,7 @@ function markSetDone(di,ei,si){
   buildFocusView();
   updateProgress();
   checkDayComplete(di);
+  if(!dayDone&&isDyn()) setTimeout(checkBalanceCelebration,400);
   saveState();
   if(cfg.auto&&!dayDone){ startTimer(allSets?'exercise':'series',di,ei); }
   if(allSets&&!dayDone){ setTimeout(()=>{ if(currentEx<DAYS[di].exercises.length-1) goToEx(currentEx+1); },700); }
@@ -1544,6 +1559,17 @@ function inferDayDate(di){
   return last;
 }
 function clearStaleMarks(){
+  if(isDyn()){
+    // Modo dinámico: un día completo se limpia al volver a él en otra fecha; los días a medias se conservan
+    const t=todayStr(); let changed=false;
+    DAYS.forEach((_,di)=>{
+      if(!state[di].flat().some(Boolean)){ stateDates[di]=null; return; }
+      if(!stateDates[di]) stateDates[di]=inferDayDate(di);
+      if(dayComplete(di)&&stateDates[di]&&stateDates[di]<t){ state[di].forEach(ex=>ex.fill(false)); stateDates[di]=null; changed=true; }
+    });
+    if(changed) saveState();
+    return changed;
+  }
   // Ya no se borra ningún día suelto. Solo cuando la vuelta completa (D1→D4) terminó en una fecha anterior,
   // al abrir la app empieza la siguiente vuelta.
   seedCycle();
@@ -2582,6 +2608,16 @@ function cycleBannerHTML(){
 function refreshCycleUI(){
   const lbl=document.getElementById('cycleLabel'), pct=document.getElementById('globalPct'), bar=document.getElementById('globalBar'), nx=document.getElementById('cycleNext');
   if(!lbl) return;
+  if(isDyn()){
+    const b=balanceScore(), p=Math.round(b.avg*100);
+    lbl.textContent='Balance semanal · '+b.inGoal+' de '+b.total+' grupos en su meta';
+    pct.textContent=p+'%'; bar.style.width=p+'%';
+    DAYS.forEach((_,di)=>{ const t=document.querySelector('#tab'+di+' .day-num'); if(t) t.textContent='D'+(di+1)+(dayComplete(di)?' ✓':''); });
+    const r=recommendDay();
+    if(nx) nx.innerHTML=(r.allTired?'Hoy conviene descansar':(r.cont?'Termina hoy: ':'Recomendado hoy: ')+'<strong>D'+(r.di+1)+' · '+DAY_SHORT[r.di]+'</strong>')+(currentDay!==r.di&&!r.allTired?' <button onclick="goRecommended()">Ir</button>':'');
+    const cb=document.getElementById('cycleBannerWrap'); if(cb){ try{ cb.innerHTML=dynCardHTML(); }catch(e){ cb.innerHTML=''; } }
+    return;
+  }
   const p=Math.round(cycleDone()/cycleTotal()*100);
   lbl.textContent='Vuelta '+vuelta.n+' · '+daysComplete()+' de 4 días';
   pct.textContent=p+'%'; bar.style.width=p+'%';
@@ -2673,6 +2709,140 @@ function showCycleCelebration(){
   fireworks(6500);
 }
 function closeCycleCelebration(){ document.getElementById('cycleOverlay').classList.remove('active'); }
+
+// ============================================================
+//  MODO DINÁMICO: cada sesión se recomienda el día que más conviene según
+//  rezago (series efectivas vs. meta semanal), recuperación y volumen acumulado.
+// ============================================================
+function isDyn(){ return cfg.mode!=='vueltas'; }
+// Meta semanal de series EFECTIVAS (directas + ½ de las indirectas). Los grupos grandes toleran y necesitan más.
+const MUSCLE_TARGET={'Pecho':12,'Espalda':14,'Hombro':10,'Hombro post.':8,'Trapecio':6,'Bíceps':10,'Tríceps':10,'Cuádriceps':12,'Isquios':10,'Glúteo':12,'Gemelos':8,'Core':8};
+// Horas de recuperación tras una sesión fuerte (grupos grandes ~72 h, chicos ~48 h)
+const MUSCLE_RECOVERY_H={'Pecho':72,'Espalda':72,'Cuádriceps':72,'Isquios':72,'Glúteo':72,'Hombro':48,'Hombro post.':48,'Trapecio':48,'Bíceps':48,'Tríceps':48,'Gemelos':48,'Core':36};
+const DAY_SHORT=['Pecho + Tríceps','Espalda + Bíceps','Hombros + Core','Piernas + Glúteo'];
+// A qué músculos aporta cada ejercicio: 1 al principal, ½ a los que ayudan
+function contributions(name){
+  const m=MUSCLE_OF[name]; if(!m) return {};
+  const o={}; o[m]=1;
+  if(m==='Pecho'&&/Press|Flexiones/.test(name)){ o['Tríceps']=0.5; o['Hombro']=0.5; }
+  if(/Pullover/.test(name)){ o['Espalda']=0.5; }
+  if(m==='Espalda'&&/Remo/.test(name)){ o['Bíceps']=0.5; o['Hombro post.']=0.5; }
+  if(/Remo Alto/.test(name)){ o['Trapecio']=0.5; }
+  if(m==='Hombro'&&/Press/.test(name)){ o['Tríceps']=0.5; }
+  if(/Press Cerrado/.test(name)){ o['Pecho']=0.5; }
+  if(/Goblet|Zancada|Split Squat/.test(name)){ o['Glúteo']=0.5; }
+  if(/Rumano/.test(name)){ o['Glúteo']=0.5; }
+  if(/Sumo/.test(name)){ o['Cuádriceps']=0.5; }
+  if(/Hip Thrust|Puente de Gluteo/.test(name)){ o['Isquios']=0.25; }
+  return o;
+}
+function sessionSlotName(s,ei){
+  const names=slotNames(s.di,ei).filter(n=>logs[n]&&logs[n][s.date]);
+  return names.length?names[0]:DAYS[s.di].exercises[ei].name;
+}
+function effectiveSets(from,to){
+  const out={}; Object.keys(MUSCLE_TARGET).forEach(m=>out[m]=0);
+  getAllSessions().forEach(s=>{ if(s.date<from||s.date>to) return;
+    DAYS[s.di].exercises.forEach((e,ei)=>{ const n=s.done[ei]||0; if(!n) return; const c=contributions(sessionSlotName(s,ei)); for(const m in c) out[m]=(out[m]||0)+n*c[m]; }); });
+  return out;
+}
+// Cuándo se trabajó por última vez cada músculo (como principal) y con cuántas series
+function lastTrained(){
+  const out={};
+  getAllSessions().forEach(s=>{ const t=s.end||(parseD(s.date).getTime()+18*3600e3);
+    DAYS[s.di].exercises.forEach((e,ei)=>{ const n=s.done[ei]||0; if(!n) return; const m=MUSCLE_OF[sessionSlotName(s,ei)];
+      if(!out[m]||t>out[m].t+1) out[m]={t,date:s.date,sets:n}; else if(out[m].date===s.date) out[m].sets+=n; }); });
+  return out;
+}
+let _msCache=null;
+function muscleStatus(){
+  if(_msCache&&_msCache.k===todayStr()&&Date.now()-_msCache.at<60000) return _msCache.v;
+  const v=_muscleStatus(); _msCache={k:todayStr(),at:Date.now(),v}; return v;
+}
+function _muscleStatus(){
+  const t=todayStr(), now=Date.now(), eff=effectiveSets(addDays(t,-6),t), last=lastTrained();
+  const tired=(typeof recoveryCheck==='function')&&recoveryCheck().pts>=2;
+  return Object.keys(MUSCLE_TARGET).map(m=>{
+    const target=MUSCLE_TARGET[m], e=Math.round((eff[m]||0)*10)/10, pct=e/target, rez=Math.max(0,1-pct);
+    const L=last[m]; let need=MUSCLE_RECOVERY_H[m];
+    if(L&&L.sets<=3) need*=0.6;              // poco volumen = se recupera antes
+    if(tired) need*=1.25;                   // con señales de cansancio, más margen
+    const hrs=L?(now-L.t)/3600e3:Infinity, rec=Math.min(1,hrs/need);
+    let dec;
+    if(rec<0.85) dec='Posponer';
+    else if(pct>=1) dec='Cubierto';
+    else if(rez>=0.5) dec='Prioritario';
+    else if(rez>=0.2) dec='Candidato';
+    else dec='Secundario';
+    return {m,target,eff:e,pct,rez,rezLvl:rez>=0.5?'Alto':rez>=0.2?'Medio':'Bajo',rec,hrsLeft:L?Math.max(0,need-hrs):0,lastDate:L?L.date:null,dec};
+  });
+}
+function recommendDay(){
+  const t=todayStr();
+  // si ya empezaste un día hoy, primero termínalo
+  for(let di=0;di<DAYS.length;di++){ if(stateDates[di]===t&&state[di].flat().some(Boolean)&&!dayComplete(di)) return {di,cont:true}; }
+  const st=muscleStatus(), by={}; st.forEach(x=>by[x.m]=x);
+  const days=DAYS.map((d,di)=>{
+    const ms={}; d.exercises.forEach((e,ei)=>{ const m=MUSCLE_OF[activeName(di,ei)]||MUSCLE_OF[e.name]; ms[m]=(ms[m]||0)+1; });
+    const total=d.exercises.length; let score=0, blocked=0;
+    for(const m in ms){ const x=by[m], w=ms[m]/total; if(x.dec==='Posponer') blocked+=w; else score+=w*x.rez; }
+    return {di,score,blocked,ms};
+  });
+  const ok=days.filter(d=>d.blocked<0.5).sort((a,b)=>b.score-a.score);
+  if(!ok.length){ const best=days.slice().sort((a,b)=>a.blocked-b.blocked)[0]; return {di:best.di,allTired:true,st,days}; }
+  const best=ok[0];
+  return {di:best.di,score:best.score,allCovered:best.score<0.08,st,days};
+}
+function recReasons(r){
+  const by={}, ms=r.days[r.di].ms, tot=Object.values(ms).reduce((a,b)=>a+b,0); r.st.forEach(x=>by[x.m]=x);
+  const mine=Object.keys(ms).map(m=>by[m]).filter(x=>x.dec!=='Posponer'&&x.rez>0).sort((a,b)=>b.rez*ms[b.m]/tot-a.rez*ms[a.m]/tot).slice(0,2);
+  let txt='';
+  if(mine.length) txt=mine.map(x=>'<strong>'+x.m+'</strong> va al '+Math.round(x.pct*100)+'% de su meta semanal').join(' y ')+(mine.length>1?'; los dos están recuperados.':' y está recuperado.');
+  const wait=r.st.filter(x=>x.dec==='Posponer').sort((a,b)=>b.hrsLeft-a.hrsLeft).slice(0,3);
+  if(wait.length) txt+=' Todavía se recupera'+(wait.length>1?'n':'')+': '+wait.map(x=>x.m+' (~'+Math.ceil(x.hrsLeft)+' h)').join(', ')+'.';
+  return txt;
+}
+function dynCardHTML(){
+  const r=recommendDay(), c=DAYS[r.di].color, dark=(r.di===0||r.di===2);
+  const here=currentDay===r.di;
+  let head, txt;
+  if(r.cont){ head='Termina lo de hoy: D'+(r.di+1)+' · '+DAY_SHORT[r.di]; txt='Ya empezaste este día hoy. Termínalo antes de cambiar.'; }
+  else if(r.allTired){ head='Hoy conviene descansar'; txt='Todos tus grupos se están recuperando. Si entrenas, lo menos cargado es D'+(r.di+1)+' · '+DAY_SHORT[r.di]+'.'; }
+  else { head='Hoy te toca: D'+(r.di+1)+' · '+DAY_SHORT[r.di]; txt=r.allCovered?'Todos tus grupos ya están en su meta semanal: este es el que más margen tiene.':recReasons(r); }
+  let h='<div class="dyn-card" style="--pc:'+c+'"><div class="dyn-lbl">🧭 ¿Qué entreno hoy?</div><div class="dyn-head">'+head+'</div><div class="dyn-txt">'+txt+'</div>';
+  if(!here&&!r.allTired) h+='<button class="dyn-go" style="background:'+c+';color:'+(dark?'#0a0a0a':'#fff')+'" onclick="goRecommended()">Ir a D'+(r.di+1)+'</button>';
+  if(r.st){
+    const col={Prioritario:'#ff8a70',Candidato:'#ffbe3c',Secundario:'#9ab',Cubierto:'#7CFC6B',Posponer:'#7da7ff'};
+    h+='<details class="ht-fold"><summary>Ver balance muscular</summary><div class="tbl-wrap"><table class="tbl dyn-tbl"><thead><tr><th>Grupo</th><th class="num">7 días</th><th>Recup.</th><th>Decisión</th></tr></thead><tbody>'+
+      r.st.slice().sort((a,b)=>b.rez-a.rez).map(x=>'<tr><td>'+x.m+'</td><td class="num">'+String(x.eff).replace('.',',')+'/'+x.target+'</td><td>'+(x.rec>=1?'Sí':x.rec>=0.85?'Casi':Math.ceil(x.hrsLeft)+' h')+'</td><td style="color:'+col[x.dec]+';font-weight:700">'+x.dec+'</td></tr>').join('')+
+      '</tbody></table></div><div class="mb-note">Series efectivas: 1 por el músculo principal y ½ por los que ayudan (p. ej. un press cuenta ½ para tríceps). Cada grupo tiene su propia meta: los grandes necesitan más. <em>7 días</em> = series efectivas / meta; <em>Recup.</em> = horas que le faltan para recuperarse.</div></details>';
+  }
+  return h+'</div>';
+}
+function goRecommended(){ const r=recommendDay(); setActiveTabVisual(r.di); currentDay=r.di; const ei=state[r.di].findIndex(ex=>!ex.every(Boolean)); currentEx=ei>=0?ei:0; _animateReveal=true; buildFocusView(); updateProgress(); saveState(); }
+function balanceScore(){ const st=muscleStatus(); return {inGoal:st.filter(x=>x.pct>=1).length,total:st.length,avg:st.reduce((a,x)=>a+Math.min(1,x.pct),0)/st.length}; }
+function checkBalanceCelebration(){
+  if(!isDyn()) return false;
+  const t=todayStr(), b=balanceScore();
+  if(b.inGoal<b.total) return false;
+  if(cfg.lastBalanced&&daysBetween(cfg.lastBalanced,t)<7) return false;
+  cfg.lastBalanced=t; saveState();
+  const eff=effectiveSets(addDays(t,-6),t), tot=Object.values(eff).reduce((a,x)=>a+x,0);
+  const days=new Set(getAllSessions().filter(s=>s.date>=addDays(t,-6)).map(s=>s.date)).size;
+  document.getElementById('cyTitle').textContent='¡SEMANA EQUILIBRADA!';
+  document.getElementById('cySub').textContent='Tus 12 grupos musculares llegaron a su meta en los últimos 7 días.';
+  document.getElementById('cyStats').innerHTML='<div class="cel-stat"><strong>'+Math.round(tot)+'</strong>Series efectivas</div><div class="cel-stat"><strong>'+days+'</strong>Días entrenados</div><div class="cel-stat"><strong>12/12</strong>Grupos en meta</div>';
+  document.getElementById('cyPrs').innerHTML='';
+  document.getElementById('cycleOverlay').classList.add('active');
+  if(cfg.sound) playFanfare();
+  fireworks(6500);
+  return true;
+}
+function setMode(m){ cfg.mode=m; saveState(); updateModeUI(); clearStaleMarks(); _animateReveal=true; buildFocusView(); updateProgress(); refreshBanners(); }
+function updateModeUI(){
+  const a=document.getElementById('modeDyn'), b=document.getElementById('modeCyc'), r=document.getElementById('cfgCycleRow');
+  if(a) a.classList.toggle('active',isDyn()); if(b) b.classList.toggle('active',!isDyn()); if(r) r.style.display=isDyn()?'none':'';
+}
 
 // REST TIMER ENGINE — usa tiempo real para no pausarse en segundo plano
 let timerDeadline=0; // timestamp absoluto de cuando termina
@@ -2921,7 +3091,7 @@ function toggleCfg(key){
   if(key==='restAdvice'&&!cfg.restAdvice){ refreshRestBanner(); }
   if(key==='extraAdvice'||key==='vest'){ _extraCache=null; _animateReveal=false; buildFocusView(); }
 }
-function openConfig(){updateDbDesc();(function(){const e=document.getElementById('cfgCycleDesc'); if(e&&vuelta) e.textContent='Vuelta '+vuelta.n+' · '+daysComplete()+' de 4 días · '+(cycleTotal()-cycleDone())+' series pendientes';})();updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
+function openConfig(){updateModeUI();updateDbDesc();(function(){const e=document.getElementById('cfgCycleDesc'); if(e&&vuelta) e.textContent='Vuelta '+vuelta.n+' · '+daysComplete()+' de 4 días · '+(cycleTotal()-cycleDone())+' series pendientes';})();updateConfigUI();updateConfigToggles();updateCfgUnitToggle();document.getElementById('configModal').classList.add('active');}
 function closeConfig(){document.getElementById('configModal').classList.remove('active');}
 function closeConfigOutside(e){if(e.target===document.getElementById('configModal'))closeConfig();}
 
@@ -2942,7 +3112,9 @@ function updateProgress(){
 function checkDayComplete(di){
   const allDone=state[di].flat().every(Boolean);
   document.getElementById('banner'+di).classList.toggle('show',allDone);
-  if(cycleComplete()){
+  if(isDyn()){
+    if(checkBalanceCelebration()){ refreshCycleUI(); return; }
+  } else if(cycleComplete()){
     if(!vuelta.done){ vuelta.done=todayStr(); saveState(); setTimeout(showCycleCelebration,400); }
     refreshCycleUI();
     return;
@@ -3135,7 +3307,7 @@ function closeCelebration(){
   setTimeout(()=>{confettiParticles=[];},800);
 }
 
-initConfetti();loadState();clearStaleMarks();(function(){ const t=todayStr(); if(cfg.lastOpen!==t){ const n=nextPending(); if(n){ currentDay=n.di; currentEx=n.ei; } cfg.lastOpen=t; saveState(); } })();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();refreshRestBanner();setTimeout(maybeSuggestRest,900);
+initConfetti();loadState();clearStaleMarks();(function(){ const t=todayStr(); if(cfg.lastOpen!==t){ if(isDyn()){ const r=recommendDay(); currentDay=r.di; const ei=state[r.di].findIndex(ex=>!ex.every(Boolean)); currentEx=ei>=0?ei:0; } else { const n=nextPending(); if(n){ currentDay=n.di; currentEx=n.ei; } } cfg.lastOpen=t; saveState(); } })();setActiveTabVisual(currentDay);buildExercises();updateConfigUI();updateConfigToggles();refreshBanners();refreshRestBanner();setTimeout(maybeSuggestRest,900);
 // ═══════════════════════════════════════════════════
 // FOCUS MODE
 // ═══════════════════════════════════════════════════
