@@ -1238,7 +1238,7 @@ function openLogModal(di,ei,si,editing,nameOverride){
       hintHTML+='<div class="log-sug sug-up">&#127919; Plan de hoy: <strong>'+planText(plan)+'</strong>'+(plan.pair&&plan.w>0?' (por mancuerna)':'')+
         (plan.w>0?' <button class="sug-use" onclick="useSuggested('+plan.w+',\''+plan.u+'\','+plan.r+')">Usar</button>':'')+'</div>';
       if(plan.next&&plan.next.ok){
-        hintHTML+='<div class="log-sug">&#11014; Para saltar: <strong>'+fmtW(plan.next.w)+' '+plan.u+' × '+plan.next.r+'</strong> <button class="sug-use" onclick="useSuggested('+plan.next.w+',\''+plan.u+'\','+plan.next.r+')">Usar</button></div>';
+        hintHTML+='<div class="log-sug">&#11014; Para saltar: <strong>'+plan.next.lbl+' × '+plan.next.r+'</strong> <button class="sug-use" onclick="useSuggested('+plan.next.nw+',\''+plan.next.nu+'\','+plan.next.r+')">Usar</button></div>';
       }
     }
   }
@@ -2078,6 +2078,15 @@ function ownedWeights(u,name){
 }
 function repsFor(targetE1,w){ return Math.max(1,Math.ceil(30*(targetE1/w-1)-1e-9)); }
 
+// Todas tus mancuernas (lb y kg) expresadas en la unidad u para calcular, con su peso y unidad reales para mostrar
+function allDumbbellsIn(u,name){
+  const other=u==='lb'?'kg':'lb';
+  const out=(ownedWeights(u,name)||[]).map(w=>({v:w,w,u}));
+  const oth=hasMyDb()?(myDbIn(other)||[]):detectDumbbells(other);
+  oth.forEach(w=>{ const v=convertW(w,other,u); if(!out.some(x=>Math.abs(x.v-v)/v<0.03)) out.push({v,w,u:other}); });
+  return out.sort((a,b)=>a.v-b.v);
+}
+function dbLbl(o){ return fmtW(o.w)+' '+o.u; }
 function exercisePlan(name){
   const t=todayStr();
   const ser=sameKind(exerciseSeries(name).filter(s=>s.date<t));
@@ -2108,10 +2117,13 @@ function exercisePlan(name){
   // si el peso se ajustó a tu mancuerna real (p. ej. 7 kg -> 15 lb), el 1RM se escala igual
   const rawTop=fromKg(last.top.kg,u), scale=(rawTop>0&&lastW>0)?lastW/rawTop:1;
   const lastE1=fromKg(last.e1rm,u)*scale, target=lastE1*(1+gain);
-  let owned=ownedWeights(u,name);
+  let items=allDumbbellsIn(u,name);
   // peso apilado (p. ej. puente de glúteo con varias mancuernas): usa tu historial de ese ejercicio
-  if(myList&&lastW>myList[myList.length-1]*1.05){ owned=[...new Set(Object.values(logs[name]||{}).flatMap(d=>Object.values(d).filter(e=>e&&e.w>0).map(e=>round1(convertW(e.w,e.u||'kg',u)))))]; }
-  owned=owned.slice(); if(owned.indexOf(lastW)<0) owned.push(lastW); owned.sort((a,b)=>a-b);
+  if(myList&&lastW>myList[myList.length-1]*1.05){ items=[...new Set(Object.values(logs[name]||{}).flatMap(d=>Object.values(d).filter(e=>e&&e.w>0).map(e=>round1(convertW(e.w,e.u||'kg',u)))))].map(w=>({v:w,w,u})); }
+  if(!items.some(x=>Math.abs(x.v-lastW)<0.01)) items.push({v:lastW,w:lastW,u});
+  items.sort((a,b)=>a.v-b.v);
+  const owned=items.map(x=>x.v);
+  const natOf=v=>items.find(x=>Math.abs(x.v-v)<1e-6)||{v,w:v,u};
   const maxOwned=owned[owned.length-1];
   // reps necesarias con el mismo peso: al menos 1 más que la vez pasada, máximo 3 más
   const rSame=gain>0? Math.min(lastR+3, Math.max(lastR+1, repsFor(target,lastW))) : lastR;
@@ -2140,17 +2152,21 @@ function exercisePlan(name){
     const needR=Math.max(12,Math.ceil(30*(next*(1+minJump/30)/lastW-1)-1e-9));
     // reps que harías con el peso nuevo en ese momento
     const J=Math.max(minJump,Math.floor(30*(lastW*(1+needR/30)/next-1)+1e-9));
-    plan.next={w:next,r:Math.max(1,rj),ok:rj>=minJump,J,needR};
+    const nn=natOf(next);
+    plan.next={w:next,r:Math.max(1,rj),ok:rj>=minJump,J,needR,lbl:dbLbl(nn),nw:nn.w,nu:nn.u};
   }
-  if(mode!=='jump'&&!next&&lastW>=maxOwned-0.01&&repsFor(target,lastW)>12){
-    const opts=buyOptions(target,maxOwned,u,minJump);
-    if(opts.length) plan.buy={opts,best:bestBuy(opts)};
+  // Sin mancuerna que te sirva para saltar (ninguna más pesada, o la siguiente es un salto enorme): ¿cuál comprar?
+  const nextReachable=next&&(rNext>=minJump||(plan.next&&plan.next.needR<=20));
+  if(mode!=='jump'&&repsFor(target,lastW)>12&&!nextReachable){
+    const opts=buyOptions(target,lastW,u,minJump,next||Infinity);
+    if(opts.length) plan.buy={opts,best:bestBuy(opts,u)};
   }
+  plan.eu=u;
   plan.mode=mode;
 
   if(mode==='hold') plan.why='Hoy mantén lo de la vez pasada: tus datos dicen que vienes cansado. Sin récords, solo buena técnica.';
   else if(mode==='reps') plan.why=(plan.r-lastR===1?'Una rep más':(plan.r-lastR)+' reps más')+' que la vez pasada ('+fmtW(lastW)+' × '+lastR+').';
-  else if(mode==='jump') plan.why='Ya dominas '+fmtW(lastW)+' × '+lastR+': toca subir de peso. Con '+fmtW(plan.w)+' '+u+', '+plan.r+' reps ya te dan un 1RM mayor que la vez pasada.';
+  else if(mode==='jump') plan.why='Ya dominas '+fmtW(lastW)+' × '+lastR+': toca subir de peso. Con '+dbLbl(natOf(plan.w))+', '+plan.r+' reps ya te dan un 1RM mayor que la vez pasada.';
   else plan.why='Una rep más que la vez pasada ('+fmtW(lastW)+' × '+lastR+').';
 
   if(mode==='ceiling') plan.notes.push('Ya estás en tu mancuerna más pesada. Para que siga siendo fuerza: <strong>baja en 3–4 seg y pausa 1 seg abajo</strong>. Con eso cuesta más llegar a las mismas reps, y eso también es progreso.');
@@ -2159,11 +2175,13 @@ function exercisePlan(name){
 
   // Alternativa
   if(mode==='jump') plan.alt={w:lastW,r:lastR+1,txt:'Si hoy no te sientes fuerte: '+fmtW(lastW)+' × '+(lastR+1)+'.'};
-  else if(mode==='reps'&&cand.length&&cand[0].r<=10) plan.alt={w:cand[0].w,r:cand[0].r,txt:'Si te sientes muy bien: '+fmtW(cand[0].w)+' × '+cand[0].r+'.'};
+  else if(mode==='reps'&&cand.length&&cand[0].r<=10){ const an=natOf(cand[0].w); plan.alt={w:an.w,u:an.u,r:cand[0].r,txt:'Si te sientes muy bien: '+dbLbl(an)+' × '+cand[0].r+'.'}; }
 
   // Serie de aproximación para compuestos (≈55% del peso de trabajo)
   const ex=EXDEF[name];
-  if(ex&&/Compuesto/.test(ex.badge)&&plan.w>0&&!tired){ const goal=plan.w*0.55; const wu=owned.filter(w=>w<plan.w).reduce((b,w)=>Math.abs(w-goal)<Math.abs(b-goal)?w:b, owned[0]); if(wu&&wu<plan.w) plan.warm={w:wu,r:10}; }
+  if(ex&&/Compuesto/.test(ex.badge)&&plan.w>0&&!tired){ const goal=plan.w*0.55; const wu=owned.filter(w=>w<plan.w).reduce((b,w)=>Math.abs(w-goal)<Math.abs(b-goal)?w:b, owned[0]); if(wu&&wu<plan.w){ const wn=natOf(wu); plan.warm={w:wn.w,u:wn.u,r:10}; } }
+  // el peso del plan se muestra en la unidad real de esa mancuerna (p. ej. 30 lb aunque el ejercicio lo anotes en kg)
+  if(plan.w>0){ const pn=natOf(plan.w); plan.w=pn.w; plan.u=pn.u; }
   return plan;
 }
 function firstTimePlan(name){
@@ -2189,16 +2207,16 @@ function planHTML(name,color){
   if(p.tiredReasons&&p.tiredReasons.length){
     h+='<div class="plan-tired"><div class="pt-h">¿Por qué dice que vienes cansado?</div>'+p.tiredReasons.map(r=>'<div class="pt-r">'+r+'</div>').join('')+'<div class="pt-f">Esto se quita solo cuando bajan las señales; lo más rápido es tomarte un día libre.</div></div>';
   }
-  if(p.warm) h+='<div class="plan-line"><span class="pl-k">Aproximación</span> 1 serie de '+fmtW(p.warm.w)+' '+p.u+' × '+p.warm.r+' antes de empezar.</div>';
-  if(p.next){
+  if(p.warm) h+='<div class="plan-line"><span class="pl-k">Aproximación</span> 1 serie de '+fmtW(p.warm.w)+' '+(p.warm.u||p.u)+' × '+p.warm.r+' antes de empezar.</div>';
+  if(p.next&&!(p.buy&&p.buy.best&&!p.next.ok&&p.next.needR>20)){
     h+='<div class="plan-line"><span class="pl-k">Para saltar de mancuerna</span>'+(p.next.ok
-      ? 'Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+p.u+' podrías saltar a <strong>'+fmtW(p.next.w)+' '+p.u+' × '+p.next.r+'</strong>.'
+      ? 'Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+(p.eu||p.u)+' podrías saltar a <strong>'+p.next.lbl+' × '+p.next.r+'</strong>.'
       : (p.next.needR<=20
-          ? 'Cuando hagas <strong>'+p.next.needR+' reps con '+fmtW(p.last.w)+' '+p.u+'</strong>, salta a <strong>'+fmtW(p.next.w)+' '+p.u+' × '+p.next.J+'</strong>.'
-          : 'Tu siguiente mancuerna ('+fmtW(p.next.w)+' '+p.u+') es un salto muy grande para este ejercicio: progresa con tempo lento y pausas, o con una variante.'))+'</div>';
+          ? 'Cuando hagas <strong>'+p.next.needR+' reps con '+fmtW(p.last.w)+' '+(p.eu||p.u)+'</strong>, salta a <strong>'+p.next.lbl+' × '+p.next.J+'</strong>.'
+          : 'Tu siguiente mancuerna ('+p.next.lbl+') es un salto muy grande para este ejercicio (harías ~'+p.next.r+' reps).'))+'</div>';
   }
   if(p.buy&&p.buy.best){
-    h+='<div class="plan-line"><span class="pl-k">Para saltar de mancuerna</span>Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+p.u+', el salto ideal sería a <strong>'+fmtW(p.buy.best.w)+' '+p.u+' × '+p.buy.best.r+'</strong>. <a href="#" onclick="openBitacora();bxView(\'resumen\');setTimeout(()=>{const c=document.getElementById(\'buyCard\'); if(c) c.scrollIntoView({behavior:\'smooth\'});},150);return false" style="color:var(--pc)">¿Qué mancuerna comprar?</a></div>';
+    h+='<div class="plan-line"><span class="pl-k">Para saltar de mancuerna</span>'+(p.next?'Tu siguiente mancuerna ('+p.next.lbl+') es un salto muy grande: harías ~'+p.next.r+' reps. ':'Ya estás en tu mancuerna más pesada. ')+'Con tu 1RM de '+fmtW(Math.round(p.e1*2)/2)+' '+(p.eu||p.u)+', el salto ideal sería a <strong>'+p.buy.best.lbl+' × '+p.buy.best.r+'</strong>'+(p.buy.opts.length>1?' (también sirven: '+p.buy.opts.filter(o=>o!==p.buy.best).slice(0,2).map(o=>o.lbl).join(' o ')+')':'')+'. Mientras la consigues, baja en 3–4 seg y pausa 1 seg abajo. <a href="#" onclick="openBitacora();bxView(\'resumen\');setTimeout(()=>{const c=document.getElementById(\'buyCard\'); if(c) c.scrollIntoView({behavior:\'smooth\'});},150);return false" style="color:var(--pc)">¿Qué mancuerna comprar?</a></div>';
   }
   if(!p.next&&p.alt) h+='<div class="plan-line"><span class="pl-k">Otra opción</span> '+p.alt.txt+'</div>';
   p.notes.forEach(n=>{ h+='<div class="plan-line plan-note">'+n+'</div>'; });
@@ -2356,7 +2374,7 @@ function endRotation(key,keep,early){
 // ============================================================
 const DB_PRESETS={
   lb:[2.5,5,8,10,12,15,17.5,20,22.5,25,27.5,30,32.5,35,40,45,50,55,60,65,70,75,80,85,90,95,100],
-  kg:[1,1.5,2,2.5,3,4,4.5,5,5.5,6,7,7.5,8,9,9.5,10,12,12.5,14,15,16,17.5,18,20,22.5,24,25,27.5,30,32.5,35,37.5,40]
+  kg:[1,1.5,2,2.5,3,4,4.5,5,5.5,6,7,7.5,8,9,9.5,10,11,12,13,12.5,14,15,16,17.5,18,20,22.5,24,25,27.5,30,32.5,35,37.5,40]
 };
 function round1(x){ return Math.round(x*10)/10; }
 // La tabla guarda cada mancuerna en su unidad real: {lb:[...], kg:[...]}. Nunca se convierten entre sí.
@@ -2511,42 +2529,46 @@ function howtoHTML(name,color){
 // ============================================================
 function buyStep(u){ return u==='kg'?2.5:5; }
 // Pesos por arriba de tu máximo con los que harías entre minJ y 12 reps superando tu 1RM
-function buyOptions(target,max,u,minJ){
-  const st=buyStep(u), out=[];
-  for(let k=1;k<=10;k++){ const w=round1(Math.ceil((max+0.001)/st)*st+(k-1)*st); if(w<=max+0.01) continue; const r=repsFor(target,w); if(r>=minJ&&r<=12) out.push({w,r}); }
-  return out;
+function buyOptions(target,max,u,minJ,below){
+  const other=u==='lb'?'kg':'lb', cands=[];
+  DB_PRESETS[u].forEach(w=>cands.push({v:w,w,u}));
+  DB_PRESETS[other].forEach(w=>{ const v=convertW(w,other,u); if(!cands.some(x=>Math.abs(x.v-v)/v<0.02)) cands.push({v,w,u:other}); });
+  const st=buyStep(u), top=DB_PRESETS[u][DB_PRESETS[u].length-1];
+  for(let k=1;k<=8;k++) cands.push({v:top+k*st,w:top+k*st,u});
+  return cands.filter(c=>c.v>max+0.01&&c.v<(below||Infinity)-0.01).sort((a,b)=>a.v-b.v)
+    .map(c=>({w:c.v,r:repsFor(target,c.v),nw:c.w,nu:c.u,lbl:dbLbl(c)})).filter(o=>o.r>=minJ&&o.r<=12);
 }
-function bestBuy(opts){ return opts.length? opts.reduce((b,o)=>Math.abs(o.r-10)<Math.abs(b.r-10)?o:b,opts[0]) : null; }
+function bestBuy(opts,u){ return opts.length? opts.reduce((b,o)=>{ const d=Math.abs(o.r-10)-(o.nu===u?0.4:0), db=Math.abs(b.r-10)-(b.nu===u?0.4:0); return d<db?o:b; },opts[0]) : null; }
 function idealBuy(name){
   if(isStackable(name)) return null;                     // el puente se resuelve apilando
   const p=exercisePlan(name); if(!p||p.first||!(p.w>0)||!p.buy) return null;
-  return {name,u:p.u,lastW:p.last.w,lastR:p.last.r,opts:p.buy.opts,best:p.buy.best};
+  return {name,u:p.eu||p.u,lastW:p.last.w,lastR:p.last.r,opts:p.buy.opts,best:p.buy.best};
 }
 function buyAdviceHTML(){
   const names=[]; DAYS.forEach((d,di)=>d.exercises.forEach((e,ei)=>names.push(activeName(di,ei))));
-  const list=names.map(idealBuy).filter(Boolean);
-  if(!list.length) return '';
-  const u=list[0].u, L=list.filter(x=>x.u===u);
+  const L=names.map(idealBuy).filter(Boolean);
+  if(!L.length) return '';
   // agrupa: el peso que sirve a más ejercicios, luego el siguiente para los que faltan, etc.
   const groups=[]; let pool=L.slice();
   while(pool.length){
-    const cnt={}; pool.forEach(x=>x.opts.forEach(o=>{ cnt[o.w]=(cnt[o.w]||0)+1; }));
-    const w=Object.keys(cnt).map(Number).sort((a,b)=>cnt[b]-cnt[a]||a-b)[0];
-    const cov=pool.filter(x=>x.opts.some(o=>o.w===w));
-    groups.push({w,items:cov.map(x=>Object.assign({},x,{r:x.opts.find(o=>o.w===w).r,pair:dbCount(x.name)===2}))});
+    const cnt={}, kgOf={}; pool.forEach(x=>x.opts.forEach(o=>{ cnt[o.lbl]=(cnt[o.lbl]||0)+1; kgOf[o.lbl]=toKg(o.nw,o.nu); }));
+    const lbl=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]||kgOf[a]-kgOf[b])[0];
+    const cov=pool.filter(x=>x.opts.some(o=>o.lbl===lbl));
+    groups.push({lbl,items:cov.map(x=>Object.assign({},x,{r:x.opts.find(o=>o.lbl===lbl).r,pair:dbCount(x.name)===2}))});
     pool=pool.filter(x=>!cov.includes(x));
   }
   const qty=g=>g.items.some(x=>x.pair)?'un par':'una mancuerna';
-  const g1=groups[0], top=Math.max(...L.map(x=>x.best.w));
-  let h='<div class="bx-card" id="buyCard"><h3>¿Qué mancuerna comprar? <span class="h-note">'+L.length+' ejercicio'+(L.length>1?'s':'')+' ya rebasaron tu mancuerna más pesada</span></h3>';
-  h+='<div class="buy-main"><div class="buy-w">'+fmtW(g1.w)+' '+u+'</div><div class="buy-txt">Compra primero <strong>'+qty(g1)+' de '+fmtW(g1.w)+' '+u+'</strong>: te sirve para <strong>'+g1.items.length+' de '+L.length+'</strong> ejercicios.</div></div>';
+  const g1=groups[0];
+  const topKg=Math.max(...L.map(x=>toKg(x.best.nw,x.best.nu))), uu=cfg.unit||'lb', st=buyStep(uu);
+  let h='<div class="bx-card" id="buyCard"><h3>¿Qué mancuerna comprar? <span class="h-note">'+L.length+' ejercicio'+(L.length>1?'s':'')+' sin una mancuerna adecuada para subir</span></h3>';
+  h+='<div class="buy-main"><div class="buy-w">'+g1.lbl+'</div><div class="buy-txt">Compra primero <strong>'+qty(g1)+' de '+g1.lbl+'</strong>: te sirve para <strong>'+g1.items.length+' de '+L.length+'</strong> ejercicios.</div></div>';
   groups.forEach((g,gi)=>{
-    if(gi>0) h+='<div class="buy-sub">Después: <strong>'+qty(g)+' de '+fmtW(g.w)+' '+u+'</strong> para '+g.items.length+' más</div>';
-    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ejercicio</th><th class="num">Ahora</th><th class="num">Con '+fmtW(g.w)+'</th></tr></thead><tbody>';
-    g.items.forEach(x=>{ h+='<tr><td>'+esc(x.name)+(x.pair?'':' <span style="color:#777">(1 mancuerna)</span>')+'</td><td class="num">'+fmtW(x.lastW)+' × '+x.lastR+'</td><td class="num"><strong>'+fmtW(g.w)+' × '+x.r+'</strong></td></tr>'; });
+    if(gi>0) h+='<div class="buy-sub">Después: <strong>'+qty(g)+' de '+g.lbl+'</strong> para '+g.items.length+' más</div>';
+    h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Ejercicio</th><th class="num">Ahora</th><th class="num">Con '+g.lbl+'</th></tr></thead><tbody>';
+    g.items.forEach(x=>{ h+='<tr><td>'+esc(x.name)+(x.pair?'':' <span style="color:#777">(1 mancuerna)</span>')+'</td><td class="num">'+fmtW(x.lastW)+' '+x.u+' × '+x.lastR+'</td><td class="num"><strong>'+x.r+' reps</strong></td></tr>'; });
     h+='</tbody></table></div>';
   });
-  h+='<div class="mb-note">Si te alcanza, unas <strong style="color:#fff">mancuernas ajustables que lleguen a '+fmtW(Math.ceil((top+buyStep(u)*4)/buyStep(u))*buyStep(u))+' '+u+' o más</strong> cubren todo esto y te dejan margen para seguir progresando. Cuando las tengas, agrégalas en ⚙ Configurar → Mis mancuernas.</div>';
+  h+='<div class="mb-note">Si te alcanza, unas <strong style="color:#fff">mancuernas ajustables que lleguen a '+fmtW(Math.ceil((fromKg(topKg,uu)+st*4)/st)*st)+' '+uu+' o más</strong> cubren todo esto y te dejan margen para seguir progresando. Cuando las tengas, agrégalas en ⚙ Configurar → Mis mancuernas.</div>';
   return h+'</div>';
 }
 
